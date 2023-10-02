@@ -7,7 +7,7 @@ My goal for this project is to simultaneously learn and develop an LLM using onl
 So far this is a simple decoder-only model which uses masked multi head attention to generate responses. I have followed along the Karpathy makemore series to create this teeny tiny model.
 
 ## Model
-UPDATE: AGPT_small has been trained. It has 73502 params(very small) and does not output coherent sentences! 
+UPDATE: AGPT_small has been trained. It has 73502 params(very small) and does not output coherent sentences! In the process of training a larger model.
 It is very overfitted since I am running all this on a macbook. I am in the process of training the large model with ~11m parameters.
 
 Here is a snippet of the response (max tokens set to 500):
