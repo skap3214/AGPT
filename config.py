@@ -20,15 +20,15 @@ class Config:
 class SmallConfig:
     MODEL_PATH = './models/v1/AGPT_small.pth'
     BATCH_SIZE = 32
-    BLOCK_SIZE = 8 #Context Lenth of the model
+    BLOCK_SIZE = 12 #Context Lenth of the model
     EVAL_INTERVAL = 500
-    EPOCHS = 5000
+    EPOCHS = 3000
     LR = 1e-3
     DEVICE = "cpu"
     EVAL_ITERS = 200
     MANUAL_SEED = 22
-    DATA = './datasets/shakespeare.txt'
+    DATA = './datasets/qa_conversations.txt'
     N_EMBD = 32
     NUM_BLOCKS = 3 #Number of Multi Attention Blocks
-    DROPOUT = 0.1 #percentage of weights which will be randomly zeroed
+    DROPOUT = 0.0 #percentage of weights which will be randomly zeroed
     HEADS = 4 #Should be divisible by N_EMBD

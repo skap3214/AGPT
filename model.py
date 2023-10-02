@@ -21,12 +21,10 @@ torch.manual_seed(Config.MANUAL_SEED)
 #Get dataset
 with open(Config.DATA, 'r', encoding='utf-8') as f:
     text = f.read()
-chars = list(sorted(set(list(text))))
+chars = sorted(set(list(text)))
 vocab_size = len(chars)
-print(vocab_size)
+itos = {i: ch for i, ch in enumerate(chars)}
 stoi = {ch:i for i, ch in enumerate(chars)}
-itos = {i: ch for ch, i in stoi.items()}
-
 #Tokenizer
 def encode(string):
     out = []
@@ -49,7 +47,7 @@ val_data = data[n:]
 #For creating batches of size batch_size
 def get_batch(split):
   data = train_data if split == "train" else val_data
-  ix = torch.randint(len(data) - Config.BLOCK_SIZE, (Config.BATCH_SIZE, ))
+  ix = torch.randint(data.size(0) - Config.BLOCK_SIZE, (Config.BATCH_SIZE, ))
   x = torch.stack([data[i:i+Config.BLOCK_SIZE] for i in ix])
   y = torch.stack([data[i+1:i+Config.BLOCK_SIZE+1] for i in ix])
   return x, y
@@ -157,17 +155,17 @@ class AGPT(nn.Module):
         self.positional_embeding_table = nn.Embedding(num_embeddings=Config.BLOCK_SIZE, embedding_dim=Config.N_EMBD)
         self.transformer_blocks = nn.Sequential(*[Block(Config.N_EMBD, Config.HEADS) for _ in range(Config.NUM_BLOCKS)])
         self.layer_norm = nn.LayerNorm(Config.N_EMBD)
-        self.lm_head = nn.Linear(Config.N_EMBD, Config.N_EMBD)
-
+        self.lm_head = nn.Linear(Config.N_EMBD, vocab_size)
+        print(sum(p.numel() for p in self.parameters()), 'parameters')
     def forward(self, idx: torch.Tensor, targets=None):
         B, T = idx.shape
-
+        assert T <= Config.BLOCK_SIZE, f"{T} is greater than {Config.BLOCK_SIZE}"
         token_embd = self.token_embedding_table(idx) #Size: (B, T, N_EMBD)
         pos_embd = self.positional_embeding_table(torch.arange(T, device=Config.DEVICE)) #Size: T, N_EMBD
         x = token_embd + pos_embd
         attended_x = self.transformer_blocks(x) #Size: (B, T, N_EMBD)
         logits = self.lm_head(self.layer_norm(attended_x)) #Size: (B, T, C)
-
+        
         if targets == None:
             loss = None
         else:
@@ -186,7 +184,3 @@ class AGPT(nn.Module):
             idx_next = torch.multinomial(probs,num_samples=1)
             idx = torch.cat((idx, idx_next), dim=1)
         return idx
-
-
-model = AGPT().to(Config.DEVICE)
-print(sum(p.numel() for p in model.parameters()), 'parameters')

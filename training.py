@@ -1,10 +1,10 @@
 import torch
 import json
-
-from model import model, get_batch, Config
+import os
+from model import AGPT, get_batch, Config
 
 torch.manual_seed(Config.MANUAL_SEED)
-
+model = AGPT().to(Config.DEVICE)
 # To store train and test loss
 train_loss_list = []
 test_loss_list = []
@@ -43,10 +43,14 @@ for iter in range(Config.EPOCHS):
         print(f"Epoch {iter} | Train Loss {losses['train']} | Test Loss {losses['val']}")
 
 # Save the model
+if not os.path.exists(os.path.dirname(Config.MODEL_PATH)):
+    # If not, create the folder
+    os.makedirs(os.path.dirname(Config.MODEL_PATH))
+config_dict = {hyper: value for hyper, value in Config.__dict__.items() if not hyper.startswith("__")}
 torch.save(model.state_dict(), Config.MODEL_PATH)
 
 # Save additional details
-metadata = {
+metadata = config_dict | {
     'num_params': num_params,
     'train_loss_list': train_loss_list,
     'test_loss_list': test_loss_list
