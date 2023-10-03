@@ -2,7 +2,6 @@ import torch
 import json
 import os
 from model import AGPT, get_batch, Config
-from time import time
 
 torch.manual_seed(Config.MANUAL_SEED)
 model = AGPT().to(Config.DEVICE)
@@ -14,7 +13,7 @@ test_loss_list = []
 def estimate_loss():
     final_loss = {}
     model.eval()
-    for split in ["val"]:
+    for split in ["train", "val"]:
         losses = torch.zeros(Config.EVAL_ITERS)
         for k in range(Config.EVAL_ITERS):
             X, Y = get_batch(split)
@@ -30,21 +29,19 @@ optimizer = torch.optim.AdamW(params=model.parameters(), lr=Config.LR)
 num_params = sum(p.numel() for p in model.parameters())
 
 # Training Loop
-start = time()
 for iter in range(Config.EPOCHS):
     train_batch, test_batch = get_batch('train')
     logits, loss = model(train_batch, test_batch)
-    train_loss_list.append(loss.item())
     optimizer.zero_grad(set_to_none=True)
     loss.backward()
     optimizer.step()
 
     if iter % Config.EVAL_INTERVAL == 0:
         losses = estimate_loss()
+        train_loss_list.append(losses['train'])
         test_loss_list.append(losses['val'])
-        print(f"Epoch {iter} | Train Loss {train_loss_list[-1]} | Test Loss {losses['val']}")
+        print(f"Epoch {iter} | Train Loss {losses['train']} | Test Loss {losses['val']}")
 
-TIME_TAKEN = time() - start
 # Save the model
 if not os.path.exists(os.path.dirname(Config.MODEL_PATH)):
     # If not, create the folder
@@ -54,14 +51,13 @@ torch.save(model.state_dict(), Config.MODEL_PATH)
 
 # Save additional details
 metadata = config_dict | {
-    'time_taken': TIME_TAKEN,
     'num_params': num_params,
     'train_loss_list': train_loss_list,
     'test_loss_list': test_loss_list
 }
 
 with open(f"{Config.MODEL_PATH}_details.json", 'w') as f:
-    json.dump(metadata, f, indent=2)
+    json.dump(metadata, f)
 
 print(f"Model successfully trained!")
 print(f"Parameters: {metadata['num_params']}")

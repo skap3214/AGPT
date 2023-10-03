@@ -1,29 +1,41 @@
+'''
+Things that I want to change:
+Changes:
+- BPE tokenizer instead of character level with special tokens
+- use cross attention to simulate system/instruction prompt
+- maybe try to use scaled attention to look at more tokens faster
+- use an actual cloud GPU to train the model
+- stream tokens (hopefully)
+- fine tune somehow
+- better, bigger dataset
+Model size improvements:
+- more context length ~ 500 tokens
+- large embedding dims (maybe use ROPE embeddings if I understand it)
+'''
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from config import Config as Config
-
+from config import SmallConfig as Config
+from tokenizer import train_tokenizer
+from tokenizers import Tokenizer
 torch.manual_seed(Config.MANUAL_SEED)
 
 #Get dataset
 with open(Config.DATA, 'r', encoding='utf-8') as f:
     text = f.read()
-chars = sorted(set(list(text)))
-vocab_size = len(chars)
-itos = {i: ch for i, ch in enumerate(chars)}
-stoi = {ch:i for i, ch in enumerate(chars)}
-#Tokenizer
-def encode(string):
-    out = []
-    for char in string:
-        out.append(stoi[char])
-    return out
 
-def decode(tokens):
-    out = ""
-    for token in tokens:
-        out += itos[token]
-    return out
+#Tokenizer
+TOKENIZER_PATH = train_tokenizer(Config.DATA, Config.MODEL_PATH)
+tokenizer = Tokenizer.from_file(TOKENIZER_PATH)
+vocab_size = tokenizer.get_vocab_size()
+
+def encode(text):
+    encoded = tokenizer.encode(text)
+    return encoded.ids
+
+def decode(ids):
+    return tokenizer.decode(ids)
+
 
 #Train Test Split
 data = torch.tensor(encode(text))
@@ -89,7 +101,7 @@ class Head(nn.Module):
 
         #Create scaled masked attention matrix of size (T, T)
         weights = k @ q.transpose(-2, -1) * C**0.5
-        weights = weights.masked_fill(self.tril == 0, float('-inf')) #If a value in self.tril == 0 then make the corresponding value in the weights matrix -inf
+        weights = weights.masked_fill(self.tril == 0, float('-inf'))
         weights = torch.softmax(weights, dim=1)
         weights = self.dropout(weights)
 
@@ -97,37 +109,6 @@ class Head(nn.Module):
         v = self.value(token_embd)
         output = weights @ v
         return output
-
-class ScaledHead(nn.Module):
-    def __init__(self, n_embd) -> None:
-        super().__init__()
-        self.key = nn.Linear(n_embd, n_embd*2, bias=False)
-        self.query = nn.Linear(n_embd, n_embd*2, bias=False)
-        self.value = nn.Linear(n_embd, n_embd*2, bias=False)
-        self.register_buffer('tril', torch.tril(torch.ones(Config.BLOCK_SIZE, Config.BLOCK_SIZE)))
-        self.dropout = nn.Dropout(Config.DROPOUT)
-        self.linear = nn.Linear(n_embd*2, n_embd)
-        self.relu = nn.ReLU()
-    
-    def forward(self, x: torch.Tensor):
-
-        B, T, C = x.shape
-        #Get key, query
-        k = self.key(x) #(B, T, 2C)
-        q = self.query(x)# (B, T, 2C)
-
-        #Get attention matrix weights
-        weights = k @ q.transpose(-2, -1) * C**0.5 #(T, T, 2C)
-        weights = weights.masked_fill(self.tril == 0, float("-inf"))
-        weights = torch.softmax(weights, dim=1)
-        weights = self.dropout(weights)
-
-        #Multiple attention matrix with value
-        v = self.value(x) #(B, T, 2C)
-        out = weights @ v
-        out = self.linear(out) #(B, T, C)
-        out = self.relu(out)
-        return out
 
 
 class MultiHeadAttention(nn.Module):
@@ -164,19 +145,6 @@ class Block(nn.Module):
         out = out + self.ffwd(self.layer_norm2(out))
         return out
 
-class ScaledHeadBlock(nn.Module):
-    def __init__(self, n_embd, num_head) -> None:
-        #num_head is not used here nor is MultiHeadAttention
-        super().__init__()
-        self.sc_head = ScaledHead(n_embd)
-        self.ffwd = FeedForward(n_embd)
-        self.layer_norm1 = nn.LayerNorm(n_embd)
-        self.layer_norm2 = nn.LayerNorm(n_embd)
-    
-    def forward(self, x:torch.Tensor):
-        out = x + self.sc_head(self.layer_norm1(x))
-        out = out + self.ffwd(self.layer_norm2(out))
-        return out
 
 class AGPT(nn.Module):
 
@@ -185,9 +153,8 @@ class AGPT(nn.Module):
         self.token_embedding_table = nn.Embedding(num_embeddings=vocab_size, embedding_dim=Config.N_EMBD)
         self.positional_embeding_table = nn.Embedding(num_embeddings=Config.BLOCK_SIZE, embedding_dim=Config.N_EMBD)
         self.transformer_blocks = nn.Sequential(*[Block(Config.N_EMBD, Config.HEADS) for _ in range(Config.NUM_BLOCKS)])
-        # self.scaled_transformer_block = nn.Sequential(*[ScaledHeadBlock(Config.N_EMBD, Config.HEADS) for _ in range(Config.NUM_BLOCKS)])
         self.layer_norm = nn.LayerNorm(Config.N_EMBD)
-        self.lm_head = nn.Linear(Config.N_EMBD, vocab_size, bias=False)
+        self.lm_head = nn.Linear(Config.N_EMBD, vocab_size)
         print(sum(p.numel() for p in self.parameters()), 'parameters')
 
     def forward(self, idx: torch.Tensor, targets=None):
@@ -197,7 +164,6 @@ class AGPT(nn.Module):
         pos_embd = self.positional_embeding_table(torch.arange(T, device=Config.DEVICE)) #Size: T, N_EMBD
         x = token_embd + pos_embd
         attended_x = self.transformer_blocks(x) #Size: (B, T, N_EMBD)
-        # attended_x = self.scaled_transformer_block(x) #Size: (B, T, N_EMBD)
         logits = self.lm_head(self.layer_norm(attended_x)) #Size: (B, T, C)
         
         if targets == None:
