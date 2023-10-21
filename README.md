@@ -1,8 +1,9 @@
 # AGPT
 
 ## Goal
-Creating and developing an LLM in only PyTorch.
-My goal for this project is to simultaneously learn and develop an LLM using only PyTorch.
+I want to create a LLM from the beginning.
+My goal for this project is to simultaneously learn and develop an LLM by myself.
+There is only one constraint: I should understand everything that I implement.
 
 So far this is a simple decoder-only model which uses masked multi head attention to generate responses. I have followed along the Karpathy makemore series to create this teeny tiny model.
 
@@ -27,3 +28,7 @@ training.py contains all the training code for the model.
 generate.py contains the code for generating responses from the model
 ## Dataset
 I am currently using ./datasets/qa_conversations.txt which I found from huggingface
+
+##References/Tutorials
+List of all the resources I used to build this:
+- https://www.youtube.com/watch?v=kCc8FmEb1nY

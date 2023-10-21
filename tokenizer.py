@@ -1,23 +1,25 @@
 import os
-from tokenizers import Tokenizer
-from tokenizers.models import BPE
-from tokenizers.trainers import BpeTrainer
-from tokenizers.pre_tokenizers import Whitespace
+import json
+from tokenizers import Tokenizer, models, pre_tokenizers, trainers
+import os
 from config import SmallConfig
 Config = SmallConfig
 
-def train_tokenizer(data, path):
+def train_tokenizer(data, path, max_length):
+    
     # Initialize a tokenizer
-    tokenizer = Tokenizer(BPE())
+    tokenizer = Tokenizer(models.BPE())
 
     # Initialize a pre-tokenizer
-    tokenizer.pre_tokenizer = Whitespace()
+    tokenizer.pre_tokenizer = pre_tokenizers.Whitespace()
 
-    # Initialize a trainer
-    trainer = BpeTrainer()
+    # Initialize a trainer with special tokens
+    trainer = trainers.BpeTrainer(special_tokens=["[PAD]", "[UNK]"])
 
     # Train the tokenizer
     tokenizer.train(files=[data], trainer=trainer)
+    tokenizer.enable_padding(direction="right", pad_id=0, pad_token="[PAD]", length=max_length)
+    tokenizer.enable_truncation(max_length)
 
     # Save the tokenizer
     path = os.path.dirname(path)
@@ -26,6 +28,7 @@ def train_tokenizer(data, path):
         os.makedirs(path)
     final_path = (path + "/tokenizer.json")
     tokenizer.save(final_path)
+
     return final_path
 # Tokenize some text
 if __name__ == "__main__":

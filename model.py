@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from config import Config as Config
-
+from modules import Head, MultiHeadAttention, FeedForward, ScaledHead
 torch.manual_seed(Config.MANUAL_SEED)
 
 #Get dataset
@@ -56,105 +56,19 @@ def adjust_tensor_to_block_size(tensor, BLOCK_SIZE, padding_value=1):
     return tensor
 
 
-class FeedForward(nn.Module):
-    def __init__(self, n_embd) -> None:
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(n_embd, n_embd*4),
-            nn.ReLU(),
-            nn.Linear(n_embd*4, n_embd),
-            nn.Dropout(Config.DROPOUT)
-        )
-    def forward(self, x: torch.Tensor):
-        return self.net(x)
-
-
-class Head(nn.Module):
-    '''
-    My First Scaled Masked Self Attention Head!!!
-    '''
-    def __init__(self, head_size) -> None:
-        super().__init__()
-        self.key = nn.Linear(Config.N_EMBD, (head_size), bias=False)
-        self.query = nn.Linear(Config.N_EMBD, (head_size), bias=False)
-        self.value = nn.Linear(Config.N_EMBD, (head_size), bias=False)
-        self.register_buffer('tril', torch.tril(torch.ones(Config.BLOCK_SIZE, Config.BLOCK_SIZE)))# basically self.tril = torch.tril(...
-        self.dropout = nn.Dropout(Config.DROPOUT)
-    
-    def forward(self, token_embd: torch.Tensor):
-        B, T, C = token_embd.shape
-        #Calculate keys, queries of sizes (B, T, head_size)
-        k = self.key(token_embd)
-        q = self.query(token_embd)
-
-        #Create scaled masked attention matrix of size (T, T)
-        weights = k @ q.transpose(-2, -1) * C**0.5
-        weights = weights.masked_fill(self.tril == 0, float('-inf')) #If a value in self.tril == 0 then make the corresponding value in the weights matrix -inf
-        weights = torch.softmax(weights, dim=1)
-        weights = self.dropout(weights)
-
-        #Multiple weights with values(B, T, head_size) to get size (B, T, head_size)
-        v = self.value(token_embd)
-        output = weights @ v
-        return output
-
-class ScaledHead(nn.Module):
-    def __init__(self, n_embd) -> None:
-        super().__init__()
-        self.key = nn.Linear(n_embd, n_embd*2, bias=False)
-        self.query = nn.Linear(n_embd, n_embd*2, bias=False)
-        self.value = nn.Linear(n_embd, n_embd*2, bias=False)
-        self.register_buffer('tril', torch.tril(torch.ones(Config.BLOCK_SIZE, Config.BLOCK_SIZE)))
-        self.dropout = nn.Dropout(Config.DROPOUT)
-        self.linear = nn.Linear(n_embd*2, n_embd)
-        self.relu = nn.ReLU()
-    
-    def forward(self, x: torch.Tensor):
-
-        B, T, C = x.shape
-        #Get key, query
-        k = self.key(x) #(B, T, 2C)
-        q = self.query(x)# (B, T, 2C)
-
-        #Get attention matrix weights
-        weights = k @ q.transpose(-2, -1) * C**0.5 #(T, T, 2C)
-        weights = weights.masked_fill(self.tril == 0, float("-inf"))
-        weights = torch.softmax(weights, dim=1)
-        weights = self.dropout(weights)
-
-        #Multiple attention matrix with value
-        v = self.value(x) #(B, T, 2C)
-        out = weights @ v
-        out = self.linear(out) #(B, T, C)
-        out = self.relu(out)
-        return out
-
-
-class MultiHeadAttention(nn.Module):
-    '''
-    First Multi Head Attention!!!!!
-    '''
-    def __init__(self, num_heads, head_size) -> None:
-        super().__init__()
-        self.heads = nn.ModuleList([Head(head_size) for _ in range(num_heads)])
-        self.proj = nn.Linear(Config.N_EMBD, Config.N_EMBD)
-        self.dropout = nn.Dropout(Config.DROPOUT)
-    
-    def forward(self, token_embd: torch.Tensor):
-        #Concatenate outputs from all heads in the C dimension.
-        #Each head corresponds to a different embddding dimension, thus will have differnet weights and stuff
-        out = torch.cat([head(token_embd) for head in self.heads], dim=-1)
-        out = self.proj(out)
-        out = self.dropout(out)
-        return out
-
 
 class Block(nn.Module):
-    def __init__(self, n_embd, num_head) -> None:
+    def __init__(
+            self, 
+            n_embd, 
+            num_head,
+            block_size,
+            dropout,
+    ) -> None:
         assert n_embd % num_head == 0, f"not divisible: mod is {n_embd % num_head}"
         super().__init__()
         head_size = n_embd // num_head
-        self.mh_head = MultiHeadAttention(num_head, head_size)
+        self.mh_head = MultiHeadAttention(head_size, n_embd, block_size, num_head, dropout)
         self.ffwd = FeedForward(n_embd)
         self.layer_norm1 = nn.LayerNorm(n_embd)
         self.layer_norm2 = nn.LayerNorm(n_embd)
@@ -165,11 +79,16 @@ class Block(nn.Module):
         return out
 
 class ScaledHeadBlock(nn.Module):
-    def __init__(self, n_embd, num_head) -> None:
+    def __init__(
+            self, 
+            n_embd,
+            block_size,
+            dropout,
+    ) -> None:
         #num_head is not used here nor is MultiHeadAttention
         super().__init__()
-        self.sc_head = ScaledHead(n_embd)
-        self.ffwd = FeedForward(n_embd)
+        self.sc_head = ScaledHead(n_embd, block_size, dropout)
+        self.ffwd = FeedForward(n_embd, dropout)
         self.layer_norm1 = nn.LayerNorm(n_embd)
         self.layer_norm2 = nn.LayerNorm(n_embd)
     
@@ -180,21 +99,26 @@ class ScaledHeadBlock(nn.Module):
 
 class AGPT(nn.Module):
 
-    def __init__(self):
+    def __init__(
+            self,
+            config: Config = Config,
+    ):
         super().__init__()
-        self.token_embedding_table = nn.Embedding(num_embeddings=vocab_size, embedding_dim=Config.N_EMBD)
-        self.positional_embeding_table = nn.Embedding(num_embeddings=Config.BLOCK_SIZE, embedding_dim=Config.N_EMBD)
-        self.transformer_blocks = nn.Sequential(*[Block(Config.N_EMBD, Config.HEADS) for _ in range(Config.NUM_BLOCKS)])
-        # self.scaled_transformer_block = nn.Sequential(*[ScaledHeadBlock(Config.N_EMBD, Config.HEADS) for _ in range(Config.NUM_BLOCKS)])
-        self.layer_norm = nn.LayerNorm(Config.N_EMBD)
-        self.lm_head = nn.Linear(Config.N_EMBD, vocab_size, bias=False)
+        self.block_size = config.BLOCK_SIZE
+        self.device = config.DEVICE
+        self.token_embedding_table = nn.Embedding(num_embeddings=vocab_size, embedding_dim=config.N_EMBD)
+        self.positional_embeding_table = nn.Embedding(num_embeddings=config.BLOCK_SIZE, embedding_dim=config.N_EMBD)
+        self.transformer_blocks = nn.Sequential(*[Block(config.N_EMBD, config.HEADS, config.BLOCK_SIZE, config.DROPOUT) for _ in range(config.NUM_BLOCKS)])
+        # self.scaled_transformer_block = nn.Sequential(*[ScaledHeadBlock(config.N_EMBD, config.HEADS) for _ in range(config.NUM_BLOCKS)])
+        self.layer_norm = nn.LayerNorm(config.N_EMBD)
+        self.lm_head = nn.Linear(config.N_EMBD, vocab_size, bias=False)
         print(sum(p.numel() for p in self.parameters()), 'parameters')
 
     def forward(self, idx: torch.Tensor, targets=None):
         B, T = idx.shape
-        assert T <= Config.BLOCK_SIZE, f"{T} is greater than {Config.BLOCK_SIZE}"
+        assert T <= self.BLOCK_SIZE, f"{T} is greater than {self.BLOCK_SIZE}"
         token_embd = self.token_embedding_table(idx) #Size: (B, T, N_EMBD)
-        pos_embd = self.positional_embeding_table(torch.arange(T, device=Config.DEVICE)) #Size: T, N_EMBD
+        pos_embd = self.positional_embeding_table(torch.arange(T, device=self.DEVICE)) #Size: T, N_EMBD
         x = token_embd + pos_embd
         attended_x = self.transformer_blocks(x) #Size: (B, T, N_EMBD)
         # attended_x = self.scaled_transformer_block(x) #Size: (B, T, N_EMBD)
@@ -211,7 +135,7 @@ class AGPT(nn.Module):
 
     def generate(self, idx, max_new_tokens):
         for _ in range(max_new_tokens):
-            idx_cond = idx[:, -(Config.BLOCK_SIZE):]
+            idx_cond = idx[:, -(self.BLOCK_SIZE):]
             logits, loss = self(idx_cond)
             logits = logits[:, -1, :]
             probs = F.softmax(logits, dim=-1)
