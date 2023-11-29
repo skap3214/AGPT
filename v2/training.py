@@ -3,6 +3,7 @@ import json
 import os
 from model import AGPT, get_batch, Config
 
+Config.DEVICE = "cuda"
 torch.manual_seed(Config.MANUAL_SEED)
 model = AGPT().to(Config.DEVICE)
 # To store train and test loss

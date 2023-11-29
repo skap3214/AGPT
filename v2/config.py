@@ -20,19 +20,19 @@ each head holds equal number of dimensions for each logits.
 #v1
 class Config:
     MODEL_PATH = './models/v2/AGPT_lg.pth'
-    BATCH_SIZE = 64
+    BATCH_SIZE = 32
     BLOCK_SIZE = 256
     EVAL_INTERVAL = 500
     EPOCHS = 5000
     LR = 3e-3
-    DEVICE = "cpu"
+    DEVICE = "cuda"
     EVAL_ITERS = 200
     MANUAL_SEED = 22
-    DATA = './datasets/qa_generations.txt'
-    N_EMBD = 384
-    NUM_BLOCKS = 6
-    DROPOUT = 0.2
-    HEADS = 6 
+    DATA = './datasets/shakespeare.txt'
+    N_EMBD = 1536
+    NUM_BLOCKS = 8
+    DROPOUT = 0.1
+    HEADS = 6
 
 class MediumConfig:
     MODEL_PATH = './models/v2/AGPT_md.pth'

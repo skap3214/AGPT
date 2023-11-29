@@ -26,7 +26,7 @@ def decode(tokens):
     return out
 
 #Train Test Split
-data = torch.tensor(encode(text))
+data = torch.tensor(encode(text)).to(Config.DEVICE)
 n = int(len(data)*0.9)
 train_data = data[:n]
 val_data = data[n:]
@@ -48,7 +48,7 @@ def adjust_tensor_to_block_size(tensor, BLOCK_SIZE, padding_value=1):
     if query_length < BLOCK_SIZE:
         # Pad the tensor
         padding_size = BLOCK_SIZE - query_length
-        tensor = torch.cat([tensor, padding_value * torch.ones(1, padding_size).long()], dim=1)
+        tensor = torch.cat([tensor, padding_value * torch.ones(1, padding_size, device=Config.DEVICE).long()], dim=1)
     elif query_length > BLOCK_SIZE:
         # Truncate the tensor
         tensor = tensor[:, :BLOCK_SIZE]
@@ -182,12 +182,12 @@ class AGPT(nn.Module):
 
     def __init__(self):
         super().__init__()
-        self.token_embedding_table = nn.Embedding(num_embeddings=vocab_size, embedding_dim=Config.N_EMBD)
-        self.positional_embeding_table = nn.Embedding(num_embeddings=Config.BLOCK_SIZE, embedding_dim=Config.N_EMBD)
-        self.transformer_blocks = nn.Sequential(*[Block(Config.N_EMBD, Config.HEADS) for _ in range(Config.NUM_BLOCKS)])
+        self.token_embedding_table = nn.Embedding(num_embeddings=vocab_size, embedding_dim=Config.N_EMBD).to(Config.DEVICE)
+        self.positional_embeding_table = nn.Embedding(num_embeddings=Config.BLOCK_SIZE, embedding_dim=Config.N_EMBD).to(Config.DEVICE)
+        self.transformer_blocks = nn.Sequential(*[Block(Config.N_EMBD, Config.HEADS) for _ in range(Config.NUM_BLOCKS)]).to(Config.DEVICE)
         # self.scaled_transformer_block = nn.Sequential(*[ScaledHeadBlock(Config.N_EMBD, Config.HEADS) for _ in range(Config.NUM_BLOCKS)])
-        self.layer_norm = nn.LayerNorm(Config.N_EMBD)
-        self.lm_head = nn.Linear(Config.N_EMBD, vocab_size, bias=False)
+        self.layer_norm = nn.LayerNorm(Config.N_EMBD).to(Config.DEVICE)
+        self.lm_head = nn.Linear(Config.N_EMBD, vocab_size, bias=False).to(Config.DEVICE)
         print(sum(p.numel() for p in self.parameters()), 'parameters')
 
     def forward(self, idx: torch.Tensor, targets=None):

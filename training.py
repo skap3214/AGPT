@@ -33,6 +33,8 @@ num_params = sum(p.numel() for p in model.parameters())
 start = time()
 for iter in range(Config.EPOCHS):
     train_batch, test_batch = get_batch('train')
+    train_batch = train_batch.to(Config.DEVICE)
+    test_batch = test_batch.to(Config.DEVICE)
     logits, loss = model(train_batch, test_batch)
     train_loss_list.append(loss.item())
     optimizer.zero_grad(set_to_none=True)
