@@ -20,11 +20,11 @@ each head holds equal number of dimensions for each logits.
 class Config:
     MODEL_PATH = './models/v1/large/AGPT_large.pth'
     BATCH_SIZE = 64
-    BLOCK_SIZE = 256
+    BLOCK_SIZE = 128
     EVAL_INTERVAL = 500
     EPOCHS = 5000
     LR = 2e-3
-    DEVICE = "cpu"
+    DEVICE = "cuda"
     EVAL_ITERS = 200
     MANUAL_SEED = 22
     DATA = './datasets/tiny_stories.txt'
