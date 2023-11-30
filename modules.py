@@ -78,12 +78,33 @@ class ScaledHead(nn.Module):
         out = self.relu(out)
         return out
 
+class Block(nn.Module):
+    def __init__(
+            self, 
+            n_embd, 
+            num_head,
+            block_size,
+            dropout,
+    ) -> None:
+        assert n_embd % num_head == 0, f"not divisible: mod is {n_embd % num_head}"
+        super().__init__()
+        head_size = n_embd // num_head
+        self.mh_head = MultiHeadAttention(head_size, n_embd, block_size, num_head, dropout)
+        self.ffwd = FeedForward(n_embd)
+        self.layer_norm1 = nn.LayerNorm(n_embd)
+        self.layer_norm2 = nn.LayerNorm(n_embd)
+    
+    def forward(self, x:torch.Tensor):
+        out = x + self.mh_head(self.layer_norm1(x)) #Residual connections
+        out = out + self.ffwd(self.layer_norm2(out))
+        return out
+
 
 class FeedForward(nn.Module):
     def __init__(
             self, 
             n_embd,
-            dropout,
+            dropout=0,
     ) -> None:
         super().__init__()
         self.net = nn.Sequential(
@@ -349,6 +370,71 @@ class FeedForwardWithSwiGLU(nn.Module):
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.seq(x)
+
+
+class MistralTransformer(nn.Module):
+    def __init__(
+        self,
+        vocab_size,
+        n_layers,
+        n_embd,
+        mistral_mha: MistralMHA,
+        device
+    ):
+        super().__init__()
+        self.vocab_size = vocab_size
+        self.n_layers = n_layers
+        assert self.vocab_size > 0
+
+        self.tok_embeddings = nn.Embedding(vocab_size, n_embd)
+
+        self.layers = torch.nn.ModuleList(
+            [mistral_mha for _ in range(n_layers)]
+        )
+
+        self.norm = RMSNorm(n_embd)
+
+        self.output = nn.Linear(
+            n_embd,
+            vocab_size,
+            bias=False
+        )
+
+        self.freqs_cis = self.precompute_freqs_cis(self.args.head_dim, 128_000).to(device)
+
+    def precompute_freqs_cis(dim: int, end: int, theta: float = 10000.0) -> torch.Tensor:
+        freqs = 1.0 / (theta ** (torch.arange(0, dim, 2)[: (dim // 2)].float() / dim))
+        t = torch.arange(end, device=freqs.device)  # type: ignore
+        freqs = torch.outer(t, freqs).float()  # type: ignore
+        return torch.polar(torch.ones_like(freqs), freqs)  # complex64
+
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        positions: torch.Tensor,
+    ):
+        h = self.tok_embeddings(input_ids)
+        freqs_cis = self.freqs_cis[positions]
+
+        mask: Optional[torch.Tensor] = None
+        if input_ids.shape[1] > 1:
+            seqlen = input_ids.shape[1]
+            tensor = torch.full(
+                (seqlen, seqlen),
+                dtype=h.dtype,
+                fill_value=1,
+                device=h.device,
+            )
+            mask = torch.tril(tensor, diagonal=0).to(h.dtype)
+            # make the mask banded to account for sliding window
+            mask = torch.triu(mask, diagonal=-self.args.sliding_window)
+            mask = torch.log(mask)
+        
+        for layer in self.layers:
+            h = layer(h, freqs_cis, positions, mask)
+
+        return self.output(self.norm(h)).float()
+
 
 class GenericTransformer(nn.Module):
 

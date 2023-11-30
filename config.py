@@ -27,11 +27,11 @@ class Config:
     DEVICE = "cpu"
     EVAL_ITERS = 200
     MANUAL_SEED = 22
-    DATA = './datasets/qa_conversations.txt'
+    DATA = './datasets/tiny_stories.txt'
     N_EMBD = 384
     NUM_BLOCKS = 6
     DROPOUT = 0.2
-    HEADS = 6 
+    HEADS = 8 
 
 class MediumConfig:
     MODEL_PATH = './models/v1/medium/AGPT_md.pth'
@@ -50,7 +50,7 @@ class MediumConfig:
     HEADS = 8 
 
 class SmallConfig:
-    MODEL_PATH = './models/v1/main/AGPT_small.pth'
+    MODEL_PATH = './models/v1/small_test/AGPT_small.pth'
     BATCH_SIZE = 32
     BLOCK_SIZE = 12
     EVAL_INTERVAL = 500
@@ -59,7 +59,7 @@ class SmallConfig:
     DEVICE = "cpu"
     EVAL_ITERS = 200
     MANUAL_SEED = 22
-    DATA = './datasets/qa_conversations.txt'
+    DATA = './datasets/tiny_stories_small.txt'
     N_EMBD = 32
     NUM_BLOCKS = 3
     DROPOUT = 0.0

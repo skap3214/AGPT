@@ -1,45 +1,53 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from config import Config as Config
-from modules import Head, MultiHeadAttention, FeedForward, ScaledHead
+from config import SmallConfig as Config
+from modules import Block
+from tokenizer import train_tokenizer
 torch.manual_seed(Config.MANUAL_SEED)
 
 #Get dataset
+tokenizer = train_tokenizer(Config.DATA, Config.MODEL_PATH, Config.BLOCK_SIZE)
+vocab_size = tokenizer.get_vocab_size()
 with open(Config.DATA, 'r', encoding='utf-8') as f:
     text = f.read()
-chars = sorted(set(list(text)))
-vocab_size = len(chars)
-itos = {i: ch for i, ch in enumerate(chars)}
-stoi = {ch:i for i, ch in enumerate(chars)}
+# chars = sorted(set(list(text)))
+# vocab_size = len(chars)
+# itos = {i: ch for i, ch in enumerate(chars)}
+# stoi = {ch:i for i, ch in enumerate(chars)}
 #Tokenizer
 def encode(string):
-    out = []
-    for char in string:
-        out.append(stoi[char])
-    return out
+    return tokenizer.encode(string).ids
 
 def decode(tokens):
-    out = ""
-    for token in tokens:
-        out += itos[token]
-    return out
+    return tokenizer.decode(tokens, skip_special_tokens=False)
 
-#Train Test Split
-data = torch.tensor(encode(text))
-n = int(len(data)*0.9)
+# Assume 'text' is your raw text data. If 'text' is a large single string,
+# you need to split it into smaller strings (sentences or paragraphs) before encoding.
+# For example, you could split the text into sentences:
+text_sentences = text.split('.')  # This is a simplistic split. Consider using a more robust method.
+
+# Now, encode each sentence and concatenate them
+data = [encode(sentence) for sentence in text_sentences]
+data = [token_id for sentence in data for token_id in sentence]  # Flatten the list of lists
+data = torch.tensor(data)
+
+print("Dataset shape:", data.shape)
+n = int(len(data) * 0.9)
 train_data = data[:n]
 val_data = data[n:]
 
-#For creating batches of size batch_size
+# Function for creating batches
 def get_batch(split):
-  data = train_data if split == "train" else val_data
-  ix = torch.randint(data.size(0) - Config.BLOCK_SIZE, (Config.BATCH_SIZE, ))
-  x = torch.stack([data[i:i+Config.BLOCK_SIZE] for i in ix])
-  y = torch.stack([data[i+1:i+Config.BLOCK_SIZE+1] for i in ix])
-  return x, y
+    data = train_data if split == "train" else val_data
+    ix = torch.randint(len(data) - Config.BLOCK_SIZE, (Config.BATCH_SIZE, ))
+    x = torch.stack([data[i:i + Config.BLOCK_SIZE] for i in ix])
+    y = torch.stack([data[i + 1:i + Config.BLOCK_SIZE + 1] for i in ix])
+    return x, y
 
-def adjust_tensor_to_block_size(tensor, BLOCK_SIZE, padding_value=1):
+# Example use of get_batch
+
+def adjust_tensor_to_block_size(tensor, BLOCK_SIZE, padding_value=0):
     """
     Adjusts the tensor to have a shape of (1, BLOCK_SIZE). Pads with padding_value or truncates the tensor as needed.
     """
@@ -56,46 +64,7 @@ def adjust_tensor_to_block_size(tensor, BLOCK_SIZE, padding_value=1):
     return tensor
 
 
-
-class Block(nn.Module):
-    def __init__(
-            self, 
-            n_embd, 
-            num_head,
-            block_size,
-            dropout,
-    ) -> None:
-        assert n_embd % num_head == 0, f"not divisible: mod is {n_embd % num_head}"
-        super().__init__()
-        head_size = n_embd // num_head
-        self.mh_head = MultiHeadAttention(head_size, n_embd, block_size, num_head, dropout)
-        self.ffwd = FeedForward(n_embd)
-        self.layer_norm1 = nn.LayerNorm(n_embd)
-        self.layer_norm2 = nn.LayerNorm(n_embd)
-    
-    def forward(self, x:torch.Tensor):
-        out = x + self.mh_head(self.layer_norm1(x)) #Residual connections
-        out = out + self.ffwd(self.layer_norm2(out))
-        return out
-
-class ScaledHeadBlock(nn.Module):
-    def __init__(
-            self, 
-            n_embd,
-            block_size,
-            dropout,
-    ) -> None:
-        #num_head is not used here nor is MultiHeadAttention
-        super().__init__()
-        self.sc_head = ScaledHead(n_embd, block_size, dropout)
-        self.ffwd = FeedForward(n_embd, dropout)
-        self.layer_norm1 = nn.LayerNorm(n_embd)
-        self.layer_norm2 = nn.LayerNorm(n_embd)
-    
-    def forward(self, x:torch.Tensor):
-        out = x + self.sc_head(self.layer_norm1(x))
-        out = out + self.ffwd(self.layer_norm2(out))
-        return out
+Block = Block(Config.N_EMBD, Config.HEADS, Config.BLOCK_SIZE, Config.DROPOUT)
 
 class AGPT(nn.Module):
 
@@ -108,7 +77,7 @@ class AGPT(nn.Module):
         self.device = config.DEVICE
         self.token_embedding_table = nn.Embedding(num_embeddings=vocab_size, embedding_dim=config.N_EMBD)
         self.positional_embeding_table = nn.Embedding(num_embeddings=config.BLOCK_SIZE, embedding_dim=config.N_EMBD)
-        self.transformer_blocks = nn.Sequential(*[Block(config.N_EMBD, config.HEADS, config.BLOCK_SIZE, config.DROPOUT) for _ in range(config.NUM_BLOCKS)])
+        self.transformer_blocks = nn.Sequential(*[Block for _ in range(config.NUM_BLOCKS)])
         # self.scaled_transformer_block = nn.Sequential(*[ScaledHeadBlock(config.N_EMBD, config.HEADS) for _ in range(config.NUM_BLOCKS)])
         self.layer_norm = nn.LayerNorm(config.N_EMBD)
         self.lm_head = nn.Linear(config.N_EMBD, vocab_size, bias=False)
@@ -116,9 +85,9 @@ class AGPT(nn.Module):
 
     def forward(self, idx: torch.Tensor, targets=None):
         B, T = idx.shape
-        assert T <= self.BLOCK_SIZE, f"{T} is greater than {self.BLOCK_SIZE}"
+        assert T <= Config.BLOCK_SIZE, f"{T} is greater than {Config.BLOCK_SIZE}"
         token_embd = self.token_embedding_table(idx) #Size: (B, T, N_EMBD)
-        pos_embd = self.positional_embeding_table(torch.arange(T, device=self.DEVICE)) #Size: T, N_EMBD
+        pos_embd = self.positional_embeding_table(torch.arange(T, device=Config.DEVICE)) #Size: T, N_EMBD
         x = token_embd + pos_embd
         attended_x = self.transformer_blocks(x) #Size: (B, T, N_EMBD)
         # attended_x = self.scaled_transformer_block(x) #Size: (B, T, N_EMBD)
@@ -135,7 +104,7 @@ class AGPT(nn.Module):
 
     def generate(self, idx, max_new_tokens):
         for _ in range(max_new_tokens):
-            idx_cond = idx[:, -(self.BLOCK_SIZE):]
+            idx_cond = idx[:, -(Config.BLOCK_SIZE):]
             logits, loss = self(idx_cond)
             logits = logits[:, -1, :]
             probs = F.softmax(logits, dim=-1)

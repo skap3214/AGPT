@@ -1,20 +1,21 @@
 import os
 import json
 from tokenizers import Tokenizer, models, pre_tokenizers, trainers
-import os
-from config import SmallConfig
-Config = SmallConfig
+from config import SmallConfig as Config
 
-def train_tokenizer(data, path, max_length):
+def train_tokenizer(data, path, max_length, eos_token="<|endoftext|>", special_tokens=[]):
     
+    # Define your custom EOS token
+    custom_eos_token = eos_token
+
     # Initialize a tokenizer
-    tokenizer = Tokenizer(models.BPE())
+    tokenizer = Tokenizer(models.BPE(unk_token="[UNK]"))
 
     # Initialize a pre-tokenizer
     tokenizer.pre_tokenizer = pre_tokenizers.Whitespace()
 
-    # Initialize a trainer with special tokens
-    trainer = trainers.BpeTrainer(special_tokens=["[PAD]", "[UNK]"])
+    # Initialize a trainer with special tokens, including your custom EOS and UNK tokens
+    trainer = trainers.BpeTrainer(special_tokens=["[PAD]", "[UNK]", custom_eos_token]+special_tokens, show_progress=True)
 
     # Train the tokenizer
     tokenizer.train(files=[data], trainer=trainer)
@@ -24,17 +25,21 @@ def train_tokenizer(data, path, max_length):
     # Save the tokenizer
     path = os.path.dirname(path)
     if not os.path.exists(path):
-        # If not, create the folder
         os.makedirs(path)
     final_path = (path + "/tokenizer.json")
     tokenizer.save(final_path)
 
-    return final_path
+    return tokenizer
+
 # Tokenize some text
 if __name__ == "__main__":
-    tokenizer_path = train_tokenizer(Config.DATA, Config.MODEL_PATH)
-    tokenizer = Tokenizer.from_file(tokenizer_path)
-    encoded = tokenizer.encode("Hello, y'all! How are you?")
-    #Check vocab size of tokenizer
+    custom_eos_token = "<|endoftext|>"
+    tokenizer = train_tokenizer(Config.DATA, Config.MODEL_PATH, Config.BLOCK_SIZE)
+    
+    # Example text with your custom EOS token
+    encoded = tokenizer.encode("Hello, y'all! How are you? " + custom_eos_token)
+    
+    # Check vocab size of tokenizer and output tokens
     print(tokenizer.get_vocab_size())
     print(encoded.tokens)
+    print(type(tokenizer.decode(encoded.ids)))
