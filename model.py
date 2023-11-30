@@ -1,45 +1,57 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from config import Config as Config
-
+from config import SmallConfig as Config
+from modules import Block
+from tokenizer import train_tokenizer
 torch.manual_seed(Config.MANUAL_SEED)
+if torch.cuda.is_available():
+    Config.DEVICE = "cuda"
+else:
+    Config.DEVICE = "cpu"
 
 #Get dataset
+tokenizer = train_tokenizer(Config.DATA, Config.MODEL_PATH, Config.BLOCK_SIZE)
+vocab_size = tokenizer.get_vocab_size()
 with open(Config.DATA, 'r', encoding='utf-8') as f:
     text = f.read()
-chars = sorted(set(list(text)))
-vocab_size = len(chars)
-itos = {i: ch for i, ch in enumerate(chars)}
-stoi = {ch:i for i, ch in enumerate(chars)}
+# chars = sorted(set(list(text)))
+# vocab_size = len(chars)
+# itos = {i: ch for i, ch in enumerate(chars)}
+# stoi = {ch:i for i, ch in enumerate(chars)}
 #Tokenizer
 def encode(string):
-    out = []
-    for char in string:
-        out.append(stoi[char])
-    return out
+    return tokenizer.encode(string).ids
 
 def decode(tokens):
-    out = ""
-    for token in tokens:
-        out += itos[token]
-    return out
+    return tokenizer.decode(tokens, skip_special_tokens=False)
 
-#Train Test Split
-data = torch.tensor(encode(text)).to(Config.DEVICE)
-n = int(len(data)*0.9)
+# Assume 'text' is your raw text data. If 'text' is a large single string,
+# you need to split it into smaller strings (sentences or paragraphs) before encoding.
+# For example, you could split the text into sentences:
+text_sentences = text.split('.')  # This is a simplistic split. Consider using a more robust method.
+
+# Now, encode each sentence and concatenate them
+data = [encode(sentence) for sentence in text_sentences]
+data = [token_id for sentence in data for token_id in sentence]  # Flatten the list of lists
+data = torch.tensor(data)
+
+print("Dataset shape:", data.shape)
+n = int(len(data) * 0.9)
 train_data = data[:n]
 val_data = data[n:]
 
-#For creating batches of size batch_size
+# Function for creating batches
 def get_batch(split):
-  data = train_data if split == "train" else val_data
-  ix = torch.randint(data.size(0) - Config.BLOCK_SIZE, (Config.BATCH_SIZE, ))
-  x = torch.stack([data[i:i+Config.BLOCK_SIZE] for i in ix])
-  y = torch.stack([data[i+1:i+Config.BLOCK_SIZE+1] for i in ix])
-  return x, y
+    data = train_data if split == "train" else val_data
+    ix = torch.randint(len(data) - Config.BLOCK_SIZE, (Config.BATCH_SIZE, ))
+    x = torch.stack([data[i:i + Config.BLOCK_SIZE] for i in ix])
+    y = torch.stack([data[i + 1:i + Config.BLOCK_SIZE + 1] for i in ix])
+    return x, y
 
-def adjust_tensor_to_block_size(tensor, BLOCK_SIZE, padding_value=1):
+# Example use of get_batch
+
+def adjust_tensor_to_block_size(tensor, BLOCK_SIZE, padding_value=0):
     """
     Adjusts the tensor to have a shape of (1, BLOCK_SIZE). Pads with padding_value or truncates the tensor as needed.
     """
@@ -49,6 +61,7 @@ def adjust_tensor_to_block_size(tensor, BLOCK_SIZE, padding_value=1):
         # Pad the tensor
         padding_size = BLOCK_SIZE - query_length
         tensor = torch.cat([tensor, padding_value * torch.ones(1, padding_size, device=Config.DEVICE).long()], dim=1)
+        tensor = torch.cat([tensor, padding_value * torch.ones(1, padding_size, device=Config.DEVICE).long()], dim=1)
     elif query_length > BLOCK_SIZE:
         # Truncate the tensor
         tensor = tensor[:, :BLOCK_SIZE]
@@ -56,138 +69,23 @@ def adjust_tensor_to_block_size(tensor, BLOCK_SIZE, padding_value=1):
     return tensor
 
 
-class FeedForward(nn.Module):
-    def __init__(self, n_embd) -> None:
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(n_embd, n_embd*4),
-            nn.ReLU(),
-            nn.Linear(n_embd*4, n_embd),
-            nn.Dropout(Config.DROPOUT)
-        )
-    def forward(self, x: torch.Tensor):
-        return self.net(x)
-
-
-class Head(nn.Module):
-    '''
-    My First Scaled Masked Self Attention Head!!!
-    '''
-    def __init__(self, head_size) -> None:
-        super().__init__()
-        self.key = nn.Linear(Config.N_EMBD, (head_size), bias=False)
-        self.query = nn.Linear(Config.N_EMBD, (head_size), bias=False)
-        self.value = nn.Linear(Config.N_EMBD, (head_size), bias=False)
-        self.register_buffer('tril', torch.tril(torch.ones(Config.BLOCK_SIZE, Config.BLOCK_SIZE)))# basically self.tril = torch.tril(...
-        self.dropout = nn.Dropout(Config.DROPOUT)
-    
-    def forward(self, token_embd: torch.Tensor):
-        B, T, C = token_embd.shape
-        #Calculate keys, queries of sizes (B, T, head_size)
-        k = self.key(token_embd)
-        q = self.query(token_embd)
-
-        #Create scaled masked attention matrix of size (T, T)
-        weights = k @ q.transpose(-2, -1) * C**0.5
-        weights = weights.masked_fill(self.tril == 0, float('-inf')) #If a value in self.tril == 0 then make the corresponding value in the weights matrix -inf
-        weights = torch.softmax(weights, dim=1)
-        weights = self.dropout(weights)
-
-        #Multiple weights with values(B, T, head_size) to get size (B, T, head_size)
-        v = self.value(token_embd)
-        output = weights @ v
-        return output
-
-class ScaledHead(nn.Module):
-    def __init__(self, n_embd) -> None:
-        super().__init__()
-        self.key = nn.Linear(n_embd, n_embd*2, bias=False)
-        self.query = nn.Linear(n_embd, n_embd*2, bias=False)
-        self.value = nn.Linear(n_embd, n_embd*2, bias=False)
-        self.register_buffer('tril', torch.tril(torch.ones(Config.BLOCK_SIZE, Config.BLOCK_SIZE)))
-        self.dropout = nn.Dropout(Config.DROPOUT)
-        self.linear = nn.Linear(n_embd*2, n_embd)
-        self.relu = nn.ReLU()
-    
-    def forward(self, x: torch.Tensor):
-
-        B, T, C = x.shape
-        #Get key, query
-        k = self.key(x) #(B, T, 2C)
-        q = self.query(x)# (B, T, 2C)
-
-        #Get attention matrix weights
-        weights = k @ q.transpose(-2, -1) * C**0.5 #(T, T, 2C)
-        weights = weights.masked_fill(self.tril == 0, float("-inf"))
-        weights = torch.softmax(weights, dim=1)
-        weights = self.dropout(weights)
-
-        #Multiple attention matrix with value
-        v = self.value(x) #(B, T, 2C)
-        out = weights @ v
-        out = self.linear(out) #(B, T, C)
-        out = self.relu(out)
-        return out
-
-
-class MultiHeadAttention(nn.Module):
-    '''
-    First Multi Head Attention!!!!!
-    '''
-    def __init__(self, num_heads, head_size) -> None:
-        super().__init__()
-        self.heads = nn.ModuleList([Head(head_size) for _ in range(num_heads)])
-        self.proj = nn.Linear(Config.N_EMBD, Config.N_EMBD)
-        self.dropout = nn.Dropout(Config.DROPOUT)
-    
-    def forward(self, token_embd: torch.Tensor):
-        #Concatenate outputs from all heads in the C dimension.
-        #Each head corresponds to a different embddding dimension, thus will have differnet weights and stuff
-        out = torch.cat([head(token_embd) for head in self.heads], dim=-1)
-        out = self.proj(out)
-        out = self.dropout(out)
-        return out
-
-
-class Block(nn.Module):
-    def __init__(self, n_embd, num_head) -> None:
-        assert n_embd % num_head == 0, f"not divisible: mod is {n_embd % num_head}"
-        super().__init__()
-        head_size = n_embd // num_head
-        self.mh_head = MultiHeadAttention(num_head, head_size)
-        self.ffwd = FeedForward(n_embd)
-        self.layer_norm1 = nn.LayerNorm(n_embd)
-        self.layer_norm2 = nn.LayerNorm(n_embd)
-    
-    def forward(self, x:torch.Tensor):
-        out = x + self.mh_head(self.layer_norm1(x)) #Residual connections
-        out = out + self.ffwd(self.layer_norm2(out))
-        return out
-
-class ScaledHeadBlock(nn.Module):
-    def __init__(self, n_embd, num_head) -> None:
-        #num_head is not used here nor is MultiHeadAttention
-        super().__init__()
-        self.sc_head = ScaledHead(n_embd)
-        self.ffwd = FeedForward(n_embd)
-        self.layer_norm1 = nn.LayerNorm(n_embd)
-        self.layer_norm2 = nn.LayerNorm(n_embd)
-    
-    def forward(self, x:torch.Tensor):
-        out = x + self.sc_head(self.layer_norm1(x))
-        out = out + self.ffwd(self.layer_norm2(out))
-        return out
+Block = Block(Config.N_EMBD, Config.HEADS, Config.BLOCK_SIZE, Config.DROPOUT)
 
 class AGPT(nn.Module):
 
-    def __init__(self):
+    def __init__(
+            self,
+            config: Config = Config,
+    ):
         super().__init__()
-        self.token_embedding_table = nn.Embedding(num_embeddings=vocab_size, embedding_dim=Config.N_EMBD).to(Config.DEVICE)
-        self.positional_embeding_table = nn.Embedding(num_embeddings=Config.BLOCK_SIZE, embedding_dim=Config.N_EMBD).to(Config.DEVICE)
-        self.transformer_blocks = nn.Sequential(*[Block(Config.N_EMBD, Config.HEADS) for _ in range(Config.NUM_BLOCKS)]).to(Config.DEVICE)
-        # self.scaled_transformer_block = nn.Sequential(*[ScaledHeadBlock(Config.N_EMBD, Config.HEADS) for _ in range(Config.NUM_BLOCKS)])
-        self.layer_norm = nn.LayerNorm(Config.N_EMBD).to(Config.DEVICE)
-        self.lm_head = nn.Linear(Config.N_EMBD, vocab_size, bias=False).to(Config.DEVICE)
+        self.block_size = config.BLOCK_SIZE
+        self.device = config.DEVICE
+        self.token_embedding_table = nn.Embedding(num_embeddings=vocab_size, embedding_dim=config.N_EMBD)
+        self.positional_embeding_table = nn.Embedding(num_embeddings=config.BLOCK_SIZE, embedding_dim=config.N_EMBD)
+        self.transformer_blocks = nn.Sequential(*[Block for _ in range(config.NUM_BLOCKS)])
+        # self.scaled_transformer_block = nn.Sequential(*[ScaledHeadBlock(config.N_EMBD, config.HEADS) for _ in range(config.NUM_BLOCKS)])
+        self.layer_norm = nn.LayerNorm(config.N_EMBD)
+        self.lm_head = nn.Linear(config.N_EMBD, vocab_size, bias=False)
         print(sum(p.numel() for p in self.parameters()), 'parameters')
 
     def forward(self, idx: torch.Tensor, targets=None):
