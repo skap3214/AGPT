@@ -5,6 +5,10 @@ from config import SmallConfig as Config
 from modules import Block
 from tokenizer import train_tokenizer
 torch.manual_seed(Config.MANUAL_SEED)
+if torch.cuda.is_available():
+    Config.DEVICE = "cuda"
+else:
+    Config.DEVICE = "cpu"
 
 #Get dataset
 tokenizer = train_tokenizer(Config.DATA, Config.MODEL_PATH, Config.BLOCK_SIZE)
@@ -56,7 +60,7 @@ def adjust_tensor_to_block_size(tensor, BLOCK_SIZE, padding_value=0):
     if query_length < BLOCK_SIZE:
         # Pad the tensor
         padding_size = BLOCK_SIZE - query_length
-        tensor = torch.cat([tensor, padding_value * torch.ones(1, padding_size).long()], dim=1)
+        tensor = torch.cat([tensor, padding_value * torch.ones(1, padding_size, device=Config.DEVICE).long()], dim=1)
     elif query_length > BLOCK_SIZE:
         # Truncate the tensor
         tensor = tensor[:, :BLOCK_SIZE]
