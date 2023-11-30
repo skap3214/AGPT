@@ -4,7 +4,9 @@ from tokenizers import Tokenizer, models, pre_tokenizers, trainers
 from config import SmallConfig as Config
 
 def train_tokenizer(data, path, max_length, eos_token="<|endoftext|>", special_tokens=[]):
-    
+    if os.path.exists((path + "/tokenizer.json")):
+        print("Tokenizer already trained, using that one")
+        return Tokenizer.from_file((path + "/tokenizer.json"))
     # Define your custom EOS token
     custom_eos_token = eos_token
 

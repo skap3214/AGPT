@@ -24,7 +24,7 @@ def encode(string):
     return tokenizer.encode(string).ids
 
 def decode(tokens):
-    return tokenizer.decode(tokens, skip_special_tokens=False)
+    return tokenizer.decode(tokens, skip_special_tokens=True)
 
 # Assume 'text' is your raw text data. If 'text' is a large single string,
 # you need to split it into smaller strings (sentences or paragraphs) before encoding.
