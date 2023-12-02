@@ -43,7 +43,7 @@ def get_tokenizer(path):
 
     # Construct the tokenizer file path
     tokenizer_path = os.path.join(model_dir, "tokenizer.json")
-
+    print(f"Tokenizer path: {tokenizer_path}")
     if os.path.exists(tokenizer_path):
         print("Tokenizer already trained, loading it")
         return Tokenizer.from_file(tokenizer_path)

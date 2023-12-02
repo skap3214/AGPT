@@ -18,7 +18,7 @@ each head holds equal number of dimensions for each logits.
 '''
 
 class Config:
-    MODEL_PATH = './models/v3/large/AGPT_large.pth'
+    MODEL_PATH = 'models/v3/large/AGPT_large.pth'
     BATCH_SIZE = 64
     BLOCK_SIZE = 256
     EVAL_INTERVAL = 500
@@ -27,14 +27,14 @@ class Config:
     DEVICE = "cuda"
     EVAL_ITERS = 200
     MANUAL_SEED = 22
-    DATA = './datasets/qa_conversations_processed.txt'
+    DATA = 'datasets/qa_conversations_processed.txt'
     N_EMBD = 512
     NUM_BLOCKS = 6
     DROPOUT = 0.2
     HEADS = 8 
 
 class MediumConfig:
-    MODEL_PATH = './models/v3/medium/AGPT_md.pth'
+    MODEL_PATH = 'models/v3/medium/AGPT_md.pth'
     BATCH_SIZE = 64
     BLOCK_SIZE = 128
     EVAL_INTERVAL = 500
@@ -43,14 +43,14 @@ class MediumConfig:
     DEVICE = "cpu"
     EVAL_ITERS = 200
     MANUAL_SEED = 22
-    DATA = './datasets/tiny_stories.txt'
+    DATA = 'datasets/tiny_stories.txt'
     N_EMBD = 512
     NUM_BLOCKS = 6
     DROPOUT = 0.1 
     HEADS = 8 
 
 class SmallConfig:
-    MODEL_PATH = './models/v3/small/AGPT_small.pth'
+    MODEL_PATH = 'models/v3/small/AGPT_small.pth'
     BATCH_SIZE = 32
     BLOCK_SIZE = 6
     EVAL_INTERVAL = 500
@@ -59,7 +59,7 @@ class SmallConfig:
     DEVICE = "cpu"
     EVAL_ITERS = 200
     MANUAL_SEED = 22
-    DATA = './datasets/qa_conversations_processed.txt'
+    DATA = 'datasets/qa_conversations_processed.txt'
     N_EMBD = 32
     NUM_BLOCKS = 3
     DROPOUT = 0.0

@@ -22,7 +22,6 @@ def train_tokenizer(data, path, max_length, eos_token="<|endoftext|>", special_t
 
     if special_tokens:
         special_tokens = ["[PAD]", "[UNK]", custom_eos_token] + special_tokens
-        print(special_tokens)
     else:
         special_tokens = ["[PAD]", "[UNK]", custom_eos_token]
     # Initialize a trainer with special tokens, including your custom EOS and UNK tokens
