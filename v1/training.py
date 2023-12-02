@@ -1,11 +1,41 @@
 import torch
 import json
 import os
-from model import AGPT, get_batch, Config
+from v1.model import AGPT, Config
 from time import time
+from v1.tokenizer import train_tokenizer
+from helpers import split_on_token, get_batch, split_encode_dataset
+# import wandb
+# wandb.login()
 
+#Get dataset
+tokenizer = train_tokenizer(Config.DATA, Config.MODEL_PATH, Config.BLOCK_SIZE)
+VOCAB_SIZE = tokenizer.get_vocab_size()
+print("VOCAB_SIZE", VOCAB_SIZE)
+with open(Config.DATA, 'r', encoding='utf-8') as f:
+    text = f.read()
+
+batched_dataset = split_on_token(text, "<|endoftext|>")
+
+train_data, val_data = split_encode_dataset(batched_dataset, tokenizer, 0.9)
+
+
+config = {
+    'batch_size': Config.BATCH_SIZE,
+    'block_size': Config.BLOCK_SIZE,
+    'epochs': Config.EPOCHS,
+    'lr': Config.LR,
+    'n_embd': Config.N_EMBD,
+    'manual_seed': Config.MANUAL_SEED,
+    'data': Config.DATA
+}
+# run = wandb.init(
+#     project='agpt_small',
+#     job_type='train',
+#     config=config,
+# )
 torch.manual_seed(Config.MANUAL_SEED)
-model = AGPT().to(Config.DEVICE)
+model = AGPT(VOCAB_SIZE).to(Config.DEVICE)
 # To store train and test loss
 train_loss_list = []
 test_loss_list = []
@@ -17,8 +47,11 @@ def estimate_loss():
     for split in ["val"]:
         losses = torch.zeros(Config.EVAL_ITERS)
         for k in range(Config.EVAL_ITERS):
-            X, Y = get_batch(split)
+            X, Y = get_batch(val_data, Config.BLOCK_SIZE, Config.BATCH_SIZE)
             _, loss = model(X, Y)
+            # wandb.log({
+            #     'val_loss': loss.item(),
+            # })
             losses[k] = loss.item()
         final_loss[split] = losses.mean().item()
     model.train()
@@ -32,13 +65,17 @@ num_params = sum(p.numel() for p in model.parameters())
 # Training Loop
 start = time()
 for iter in range(Config.EPOCHS):
-    train_batch, test_batch = get_batch('train')
+    train_batch, test_batch = get_batch(train_data, Config.BLOCK_SIZE, Config.BATCH_SIZE)
     train_batch = train_batch.to(Config.DEVICE)
     test_batch = test_batch.to(Config.DEVICE)
     logits, loss = model(train_batch, test_batch)
+    # wandb.log({
+    #     'loss': loss.item()
+    # })
     train_loss_list.append(loss.item())
     optimizer.zero_grad(set_to_none=True)
     loss.backward()
+    torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
     optimizer.step()
 
     if iter % Config.EVAL_INTERVAL == 0:

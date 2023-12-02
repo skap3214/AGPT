@@ -3,70 +3,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 from config import SmallConfig as Config
 from modules import Block
-from tokenizer import train_tokenizer
+
 torch.manual_seed(Config.MANUAL_SEED)
 if torch.cuda.is_available():
     Config.DEVICE = "cuda"
 else:
     Config.DEVICE = "cpu"
-
-#Get dataset
-tokenizer = train_tokenizer(Config.DATA, Config.MODEL_PATH, Config.BLOCK_SIZE)
-vocab_size = tokenizer.get_vocab_size()
-with open(Config.DATA, 'r', encoding='utf-8') as f:
-    text = f.read()
-# chars = sorted(set(list(text)))
-# vocab_size = len(chars)
-# itos = {i: ch for i, ch in enumerate(chars)}
-# stoi = {ch:i for i, ch in enumerate(chars)}
-#Tokenizer
-def encode(string):
-    return tokenizer.encode(string).ids
-
-def decode(tokens):
-    return tokenizer.decode(tokens, skip_special_tokens=True)
-
-# Assume 'text' is your raw text data. If 'text' is a large single string,
-# you need to split it into smaller strings (sentences or paragraphs) before encoding.
-# For example, you could split the text into sentences:
-text_sentences = text.split('.')  # This is a simplistic split. Consider using a more robust method.
-
-# Now, encode each sentence and concatenate them
-data = [encode(sentence) for sentence in text_sentences]
-data = [token_id for sentence in data for token_id in sentence]  # Flatten the list of lists
-data = torch.tensor(data)
-
-print("Dataset shape:", data.shape)
-n = int(len(data) * 0.9)
-train_data = data[:n]
-val_data = data[n:]
-
-# Function for creating batches
-def get_batch(split):
-    data = train_data if split == "train" else val_data
-    ix = torch.randint(len(data) - Config.BLOCK_SIZE, (Config.BATCH_SIZE, ))
-    x = torch.stack([data[i:i + Config.BLOCK_SIZE] for i in ix])
-    y = torch.stack([data[i + 1:i + Config.BLOCK_SIZE + 1] for i in ix])
-    return x, y
-
-# Example use of get_batch
-
-def adjust_tensor_to_block_size(tensor, BLOCK_SIZE, padding_value=0):
-    """
-    Adjusts the tensor to have a shape of (1, BLOCK_SIZE). Pads with padding_value or truncates the tensor as needed.
-    """
-    query_length = tensor.shape[1]
-    
-    if query_length < BLOCK_SIZE:
-        # Pad the tensor
-        padding_size = BLOCK_SIZE - query_length
-        tensor = torch.cat([tensor, padding_value * torch.ones(1, padding_size, device=Config.DEVICE).long()], dim=1)
-        tensor = torch.cat([tensor, padding_value * torch.ones(1, padding_size, device=Config.DEVICE).long()], dim=1)
-    elif query_length > BLOCK_SIZE:
-        # Truncate the tensor
-        tensor = tensor[:, :BLOCK_SIZE]
-    
-    return tensor
 
 
 Block = Block(Config.N_EMBD, Config.HEADS, Config.BLOCK_SIZE, Config.DROPOUT)
@@ -75,6 +17,7 @@ class AGPT(nn.Module):
 
     def __init__(
             self,
+            vocab_size: int,
             config: Config = Config,
     ):
         super().__init__()

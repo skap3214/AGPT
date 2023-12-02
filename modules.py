@@ -4,6 +4,7 @@ All nn.Modules that are implemented and used to create model
 import torch
 from torch import nn
 from typing import Tuple, Optional
+import math
 
 #Very beggining stuff
 class Head(nn.Module):
@@ -157,32 +158,32 @@ class MistralMHA(nn.Module):
         ):
         super().__init__()
 
-        self.n_heads: int = n_heads
-        self.n_kv_heads: int = n_kv_heads
-        
+        self.n_heads: int = int(n_heads)
+        self.n_kv_heads: int = int(n_kv_heads)
+        self.head_dim = int(head_dim)
         self.repeats = self.n_heads // self.n_kv_heads #Need to be divisible
-        self.sliding_window = sliding_window
+        self.sliding_window = int(sliding_window)
 
         self.scale = head_dim**-0.5
 
         self.wq = nn.Linear(
-            dim,
-            n_heads * head_dim,
+            in_features=dim,
+            out_features=int(n_heads * head_dim),
             bias=False
         )
         self.wk = nn.Linear(
-            dim,
-            n_kv_heads * head_dim,
+            in_features=dim,
+            out_features=int(n_kv_heads * head_dim),
             bias=False
         )
         self.wv = nn.Linear(
-            dim,
-            n_kv_heads * head_dim,
+            in_features=dim,
+            out_features=int(n_kv_heads * head_dim),
             bias=False
         )
         self.wo = nn.Linear(
-            n_heads * head_dim,
-            dim,
+            in_features=(int(n_heads * head_dim)),
+            out_features=dim,
             bias=False
         )
 
@@ -190,18 +191,18 @@ class MistralMHA(nn.Module):
 
         self.cache_k = torch.empty(
             (
-                max_batch_size,
-                sliding_window,
-                self.n_kv_heads,
-                self.head_dim,
+                int(max_batch_size),
+                int(sliding_window),
+                int(self.n_kv_heads),
+                int(self.head_dim),
             ), dtype=torch.float16
         )
         self.cache_v = torch.empty(
             (
-                max_batch_size,
-                sliding_window,
-                self.n_kv_heads,
-                self.head_dim,
+                int(max_batch_size),
+                int(sliding_window),
+                int(self.n_kv_heads),
+                int(self.head_dim),
             ), dtype=torch.float16
         )
 
@@ -223,7 +224,7 @@ class MistralMHA(nn.Module):
         values = torch.repeat_interleave(values, repeats=repeats, dim=2)
         return keys, values
 
-    def _reshape_for_broadcast(freqs_cis: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
+    def _reshape_for_broadcast(self, freqs_cis: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
         """
         freqs_cis: complex - (seq_len, head_dim / 2)
         x: complex - (bsz, seq_len, head_dim / 2)
@@ -244,14 +245,14 @@ class MistralMHA(nn.Module):
         bsz, seqlen, _ = x.shape
 
         xq, xk, xv = self.wq(x), self.wk(x), self.wv(x)
-        xq = xq.view(bsz, seqlen, self.n_heads, self.args.head_dim)
-        xk = xk.view(bsz, seqlen, self.n_kv_heads, self.args.head_dim)
-        xv = xv.view(bsz, seqlen, self.n_kv_heads, self.args.head_dim)
+        xq = xq.view(bsz, seqlen, self.n_heads, self.head_dim)
+        xk = xk.view(bsz, seqlen, self.n_kv_heads, self.head_dim)
+        xv = xv.view(bsz, seqlen, self.n_kv_heads, self.head_dim)
         xq, xk = self.apply_rotary_emb(xq, xk, freqs_cis=freqs_cis)
         
         # The cache is a rotating buffer
         scatter_pos = (positions[-self.sliding_window:] % self.sliding_window)[None, :, None, None]
-        scatter_pos = scatter_pos.repeat(bsz, 1, self.n_kv_heads, self.args.head_dim)
+        scatter_pos = scatter_pos.repeat(bsz, 1, self.n_kv_heads, self.head_dim)
         self.cache_k[:bsz].scatter_(dim=1, index=scatter_pos, src=xk[:, -self.sliding_window:])
         self.cache_v[:bsz].scatter_(dim=1, index=scatter_pos, src=xv[:, -self.sliding_window:])
 
@@ -378,12 +379,15 @@ class MistralTransformer(nn.Module):
         vocab_size,
         n_layers,
         n_embd,
+        head_dim,
+        sliding_window,
         mistral_mha: MistralMHA,
         device
     ):
         super().__init__()
         self.vocab_size = vocab_size
         self.n_layers = n_layers
+        self.sliding_window = sliding_window
         assert self.vocab_size > 0
 
         self.tok_embeddings = nn.Embedding(vocab_size, n_embd)
@@ -400,9 +404,9 @@ class MistralTransformer(nn.Module):
             bias=False
         )
 
-        self.freqs_cis = self.precompute_freqs_cis(self.args.head_dim, 128_000).to(device)
+        self.freqs_cis = self.precompute_freqs_cis(head_dim, 128_000).to(device)
 
-    def precompute_freqs_cis(dim: int, end: int, theta: float = 10000.0) -> torch.Tensor:
+    def precompute_freqs_cis(self, dim: int, end: int, theta: float = 10000.0) -> torch.Tensor:
         freqs = 1.0 / (theta ** (torch.arange(0, dim, 2)[: (dim // 2)].float() / dim))
         t = torch.arange(end, device=freqs.device)  # type: ignore
         freqs = torch.outer(t, freqs).float()  # type: ignore
@@ -427,7 +431,7 @@ class MistralTransformer(nn.Module):
             )
             mask = torch.tril(tensor, diagonal=0).to(h.dtype)
             # make the mask banded to account for sliding window
-            mask = torch.triu(mask, diagonal=-self.args.sliding_window)
+            mask = torch.triu(mask, diagonal=-self.sliding_window)
             mask = torch.log(mask)
         
         for layer in self.layers:
@@ -450,3 +454,30 @@ class GenericTransformer(nn.Module):
         self.ffwd = feed_forward
         self.a_norm = attention_norm
         self.f_norm = feedforward_norm
+
+#V3
+class PositionalEncoding(nn.Module):
+
+    def __init__(self, n_embd: int, block_size: int, dropout: float = 0.1):
+        super().__init__()
+        self.dropout = nn.Dropout(p=dropout)
+
+        position = torch.arange(block_size).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, n_embd, 2) * (-math.log(10000.0) / n_embd))
+        pe = torch.zeros(block_size, 1, n_embd)
+        pe[:, 0, 0::2] = torch.sin(position * div_term)
+        pe[:, 0, 1::2] = torch.cos(position * div_term)
+        self.register_buffer('pe', pe)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Arguments:
+            x: Tensor, shape ``[batch_size, seq_length, embedding_dim]``
+        """
+        B, T, C = x.shape
+        x = x.view((T, B, C))
+        x = x + self.pe[:x.size(0)]
+        T, B, C = x.shape
+        x = x.view((B, T, C)) 
+        x = self.dropout(x)
+        return x

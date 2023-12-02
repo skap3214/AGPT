@@ -50,7 +50,7 @@ class MediumConfig:
     HEADS = 8 
 
 class SmallConfig:
-    MODEL_PATH = './models/v1/small_test/AGPT_small.pth'
+    MODEL_PATH = './models/v1/small/AGPT_small.pth'
     BATCH_SIZE = 32
     BLOCK_SIZE = 12
     EVAL_INTERVAL = 500

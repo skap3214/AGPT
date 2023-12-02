@@ -1,12 +1,16 @@
 import os
-import json
 from tokenizers import Tokenizer, models, pre_tokenizers, trainers
-from config import SmallConfig as Config
 
 def train_tokenizer(data, path, max_length, eos_token="<|endoftext|>", special_tokens=[]):
-    if os.path.exists((path + "/tokenizer.json")):
-        print("Tokenizer already trained, using that one")
-        return Tokenizer.from_file((path + "/tokenizer.json"))
+    # Extract the directory from the provided model path
+    model_dir = os.path.dirname(path)
+
+    # Construct the tokenizer file path
+    tokenizer_path = os.path.join(model_dir, "tokenizer.json")
+
+    if os.path.exists(tokenizer_path):
+        print("Tokenizer already trained, loading it")
+        return Tokenizer.from_file(tokenizer_path)
     # Define your custom EOS token
     custom_eos_token = eos_token
 
@@ -16,8 +20,13 @@ def train_tokenizer(data, path, max_length, eos_token="<|endoftext|>", special_t
     # Initialize a pre-tokenizer
     tokenizer.pre_tokenizer = pre_tokenizers.Whitespace()
 
+    if special_tokens:
+        special_tokens = ["[PAD]", "[UNK]", custom_eos_token] + special_tokens
+        print(special_tokens)
+    else:
+        special_tokens = ["[PAD]", "[UNK]", custom_eos_token]
     # Initialize a trainer with special tokens, including your custom EOS and UNK tokens
-    trainer = trainers.BpeTrainer(special_tokens=["[PAD]", "[UNK]", custom_eos_token]+special_tokens, show_progress=True)
+    trainer = trainers.BpeTrainer(special_tokens=special_tokens, show_progress=True)
 
     # Train the tokenizer
     tokenizer.train(files=[data], trainer=trainer)
@@ -33,8 +42,23 @@ def train_tokenizer(data, path, max_length, eos_token="<|endoftext|>", special_t
 
     return tokenizer
 
-# Tokenize some text
+def get_tokenizer(path):
+    # Extract the directory from the provided model path
+    model_dir = os.path.dirname(path)
+
+    # Construct the tokenizer file path
+    tokenizer_path = os.path.join(model_dir, "tokenizer.json")
+
+    if os.path.exists(tokenizer_path):
+        print("Tokenizer already trained, loading it")
+        return Tokenizer.from_file(tokenizer_path)
+    else:
+        raise FileNotFoundError("Tokenizer does not exist")
+    
+
+
 if __name__ == "__main__":
+    from config import SmallConfig as Config
     custom_eos_token = "<|endoftext|>"
     tokenizer = train_tokenizer(Config.DATA, Config.MODEL_PATH, Config.BLOCK_SIZE)
     
