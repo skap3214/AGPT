@@ -36,14 +36,14 @@ def print_with_color(text, color, background=Back.BLACK, style=Style.NORMAL, end
 
 def print_header():
     """ Prints the chat header. """
-    header_text = " Welcome to YouLearn Chat Interface "
+    header_text = " Welcome to AGPT Chat Interface "
     print_with_color("+" + "-" * (len(header_text) + 2) + "+", Fore.BLUE)
     print_with_color(f"|{header_text}|", Fore.CYAN, Back.BLUE, Style.BRIGHT)
     print_with_color("+" + "-" * (len(header_text) + 2) + "+", Fore.BLUE)
 
 def print_footer():
     """ Prints the chat footer. """
-    footer_text = " Thank you for using YouLearn Chat! "
+    footer_text = " Thank you for using AGPT Chat! "
     print_with_color("+" + "-" * (len(footer_text) + 2) + "+", Fore.BLUE)
     print_with_color(f"|{footer_text}|", Fore.CYAN, Back.BLUE, Style.BRIGHT)
     print_with_color("+" + "-" * (len(footer_text) + 2) + "+", Fore.BLUE)
