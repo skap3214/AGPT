@@ -1,15 +1,14 @@
 import sys
 sys.path.append("")
-import time
-import tqdm
 import datetime
-from colorama import init, Fore, Style, Back
-import textwrap
 import torch
 import os
 from v3.model import AGPT, Config
 from helpers import generate_response
 from v3.tokenizer import get_tokenizer
+from rich.console import Console
+from rich.table import Table
+from rich.panel import Panel
 
 if torch.cuda.is_available():
     Config.DEVICE = "cuda"
@@ -24,80 +23,72 @@ model.load_state_dict(torch.load(Config.MODEL_PATH, map_location=torch.device(Co
 model.to(Config.DEVICE)
 model.eval()
 
-# Initialize colorama
-init(autoreset=True)
+
+console = Console()
 
 def clear_screen():
-    """ Clears the screen based on the operating system. """
     os.system('cls' if os.name == 'nt' else 'clear')
 
-def print_with_color(text, color, background=Back.BLACK, style=Style.NORMAL, end="\n"):
-    print(style + background + color + text + Style.RESET_ALL, end=end)
+def dynamic_greeting():
+    current_hour = datetime.datetime.now().hour
+    if 5 <= current_hour < 12:
+        return "Good Morning!"
+    elif 12 <= current_hour < 18:
+        return "Good Afternoon!"
+    else:
+        return "Good Evening!"
 
 def print_header():
-    """ Prints the chat header. """
-    header_text = " Welcome to AGPT Chat Interface "
-    print_with_color("+" + "-" * (len(header_text) + 2) + "+", Fore.BLUE)
-    print_with_color(f"|{header_text}|", Fore.CYAN, Back.BLUE, Style.BRIGHT)
-    print_with_color("+" + "-" * (len(header_text) + 2) + "+", Fore.BLUE)
+    greeting = dynamic_greeting()
+    console.print(f"{greeting} Welcome to YouLearn Chat Interface", style="bold blue")
 
 def print_footer():
-    """ Prints the chat footer. """
-    footer_text = " Thank you for using AGPT Chat! "
-    print_with_color("+" + "-" * (len(footer_text) + 2) + "+", Fore.BLUE)
-    print_with_color(f"|{footer_text}|", Fore.CYAN, Back.BLUE, Style.BRIGHT)
-    print_with_color("+" + "-" * (len(footer_text) + 2) + "+", Fore.BLUE)
+    console.print("Thank you for using YouLearn Chat! Have a great day!", style="bold blue")
+
+def print_help():
+    table = Table(title="Chat Commands")
+    table.add_column("Command", style="dim", width=12)
+    table.add_column("Description", style="dim")
+    table.add_row("exit", "Exit the chat interface.")
+    table.add_row("help", "Display this help message.")
+    console.print(table)
 
 def format_timestamp():
-    """ Returns formatted current timestamp. """
     return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-def simulate_typing_effect(text):
-    """ Simulates a typing effect for the given text. """
-    for char in text:
-        sys.stdout.write(char)
-        sys.stdout.flush()
-        time.sleep(0.05)
-
 def print_response_box(response):
-    """ Prints the response in a box. """
-    lines = textwrap.wrap(response, width=70)
-    width = max(len(line) for line in lines)
-    print_with_color("+" + "-" * (width + 2) + "+", Fore.GREEN)
-    for line in lines:
-        print_with_color(f"| {line.ljust(width)} |", Fore.GREEN)
-    print_with_color("+" + "-" * (width + 2) + "+", Fore.GREEN)
+    response_panel = Panel(response, title="Response", border_style="green")
+    console.print(response_panel)
 
 def main():
     clear_screen()
     print_header()
 
     while True:
-        query = input(Fore.YELLOW + Style.BRIGHT + "Your Question (Type 'exit' to quit): " + Style.RESET_ALL)
+        query = console.input("[bold yellow]Your Question (Type 'exit' or 'help' for commands): ")
 
         if query.lower() == 'exit':
             break
+        elif query.lower() == 'help':
+            print_help()
+            continue
 
         try:
-            print_with_color("Generating response, please wait...", Fore.YELLOW, style=Style.DIM)
-            
-            # Placeholder for the actual response generation
-            response = generate_response(
+            with console.status("[bold yellow]Processing your request...", spinner="dots"):
+                # Simulate response generation
+                response = generate_response(
                 query=query,
                 model=model,
                 tokenizer=tokenizer,
                 block_size=Config.BLOCK_SIZE,
                 device=Config.DEVICE
-            )
-
-            timestamp = format_timestamp()
-            print_with_color(f"\n--- Model Response at {timestamp} ---", Fore.GREEN, style=Style.BRIGHT)
-            simulate_typing_effect(response)
-            print("\n")
-            print_response_box(response)
-
+                )
+                
+                timestamp = format_timestamp()
+                console.print(f"--- Model Response at {timestamp} ---", style="bold green")
+                print_response_box(response)
         except Exception as e:
-            print_with_color("An error occurred: " + str(e), Fore.RED, style=Style.BRIGHT)
+            console.print(f"An error occurred: {e}", style="bold red")
 
     print_footer()
 
