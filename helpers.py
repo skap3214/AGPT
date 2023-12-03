@@ -40,5 +40,5 @@ def get_batch(data, block_size: int, batch_size: int):
 def generate_response(query, model, tokenizer, block_size, device):
     ten_query = torch.tensor([tokenizer.encode(query).ids], dtype=torch.long, device=device)
     enc_query = ten_query.to(device)
-    generated_tokens = model.generate(enc_query, int(block_size - len(enc_query)))[0]
+    generated_tokens = model.generate(enc_query, block_size)[0]
     return tokenizer.decode(generated_tokens.tolist())

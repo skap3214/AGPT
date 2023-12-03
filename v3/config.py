@@ -24,14 +24,14 @@ class Config:
     EVAL_INTERVAL = 500
     EPOCHS = 5000
     LR = 2e-3
-    DEVICE = "cuda"
+    DEVICE = "cpu"
     EVAL_ITERS = 200
     MANUAL_SEED = 22
     DATA = 'datasets/qa_conversations_processed.txt'
     N_EMBD = 512
-    NUM_BLOCKS = 6
+    NUM_BLOCKS = 8
     DROPOUT = 0.2
-    HEADS = 8 
+    HEADS = 16
 
 class MediumConfig:
     MODEL_PATH = 'models/v3/medium/AGPT_md.pth'
