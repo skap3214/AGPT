@@ -40,10 +40,10 @@ def dynamic_greeting():
 
 def print_header():
     greeting = dynamic_greeting()
-    console.print(f"{greeting} Welcome to YouLearn Chat Interface", style="bold blue")
+    console.print(f"{greeting} Welcome to AGPT Chat Interface", style="bold blue")
 
 def print_footer():
-    console.print("Thank you for using YouLearn Chat! Have a great day!", style="bold blue")
+    console.print("Thank you for using AGPT Chat! Have a great day!", style="bold blue")
 
 def print_help():
     table = Table(title="Chat Commands")
