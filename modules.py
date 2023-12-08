@@ -5,6 +5,7 @@ import torch
 from torch import nn
 from typing import Tuple, Optional
 import math
+from rotary_embedding_torch import RotaryEmbedding
 
 #Very beggining stuff
 class Head(nn.Module):
@@ -439,23 +440,8 @@ class MistralTransformer(nn.Module):
 
         return self.output(self.norm(h)).float()
 
-
-class GenericTransformer(nn.Module):
-
-    def __init__(
-        self,
-        mha: nn.Module,
-        feed_forward: nn.Module,
-        attention_norm: nn.Module,
-        feedforward_norm: nn.Module,
-    ) -> None:
-        super().__init__()
-        self.mha = mha
-        self.ffwd = feed_forward
-        self.a_norm = attention_norm
-        self.f_norm = feedforward_norm
-
 #V3
+
 class PositionalEncoding(nn.Module):
 
     def __init__(self, n_embd: int, block_size: int, dropout: float = 0.1):
@@ -481,3 +467,76 @@ class PositionalEncoding(nn.Module):
         x = x.view((B, T, C)) 
         x = self.dropout(x)
         return x
+
+#V4
+class RopeAttention(nn.Module):
+
+    def __init__(
+            self,
+            n_embd,
+            dropout,
+            block_size,
+            n_head,
+            bias=True,
+        ):
+        super().__init__()
+        assert n_embd % n_head == 0
+        self.c_attn = nn.Linear(n_embd, 3 * n_embd, bias=bias)
+        self.rope = RotaryEmbedding(dim=(n_embd//n_head))
+        self.c_proj = nn.Linear(n_embd, n_embd, bias=bias)
+        self.attn_dropout = nn.Dropout(dropout)
+        self.resid_dropout = nn.Dropout(dropout)
+        self.n_head = n_head
+        self.n_embd = n_embd
+        self.dropout = dropout
+        self.flash = hasattr(torch.nn.functional, 'scaled_dot_product_attention')
+        if not self.flash:
+            print("WARNING: using slow attention. Flash Attention requires PyTorch >= 2.0")
+
+            self.register_buffer("bias", torch.tril(torch.ones(block_size, block_size))
+                                        .view(1, 1, block_size, block_size))
+
+    def forward(self, x):
+        B, T, C = x.size()
+
+        q, k, v  = self.c_attn(x).split(self.n_embd, dim=2)
+        k = k.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)
+        q = q.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)
+        v = v.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)
+
+        q = self.rope.rotate_queries_or_keys(q)
+        k = self.rope.rotate_queries_or_keys(k)
+
+        if self.flash:
+            y = torch.nn.functional.scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=self.dropout if self.training else 0, is_causal=True)
+        else:
+            att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
+            att = att.masked_fill(self.bias[:,:,:T,:T] == 0, float('-inf'))
+            att = nn.functional.softmax(att, dim=-1)
+            att = self.attn_dropout(att)
+            y = att @ v
+        y = y.transpose(1, 2).contiguous().view(B, T, C)
+
+        y = self.resid_dropout(self.c_proj(y))
+        return y
+
+
+class RopeBlock(nn.Module):
+    def __init__(
+            self, 
+            n_embd,
+            num_head,
+            block_size,
+            dropout,
+    ) -> None:
+        assert n_embd % num_head == 0, f"not divisible: mod is {n_embd % num_head}"
+        super().__init__()
+        self.mh_head = RopeAttention(n_embd, dropout, block_size, num_head)
+        self.ffwd = FeedForward(n_embd)
+        self.layer_norm1 = nn.LayerNorm(n_embd)
+        self.layer_norm2 = nn.LayerNorm(n_embd)
+    
+    def forward(self, x:torch.Tensor):
+        out = x + self.mh_head(self.layer_norm1(x)) #Residual connections
+        out = out + self.ffwd(self.layer_norm2(out))
+        return out

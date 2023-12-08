@@ -5,4 +5,4 @@ numpy
 matplotlib
 tokenizers
 wandb
-colorama
+rotary-embedding-torch
