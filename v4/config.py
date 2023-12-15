@@ -20,15 +20,15 @@ each head holds equal number of dimensions for each logits.
 class Config:
     WANDB_LOG = True
     MODEL_PATH = 'models/v4/large/AGPT_large.pth'
-    BATCH_SIZE = 64
-    BLOCK_SIZE = 1024
+    BATCH_SIZE = 32
+    BLOCK_SIZE = 512
     EVAL_INTERVAL = 500
     EPOCHS = 2
     LR = 2e-3
     DEVICE = "cuda"
     EVAL_ITERS = 200
     MANUAL_SEED = 2
-    DATA = 'datasets/medicare_train_proccessed.txt'
+    DATA = 'datasets/20231101_gu.txt'
     N_EMBD = 768
     NUM_BLOCKS = 12
     DROPOUT = 0.0
@@ -40,12 +40,12 @@ class MediumConfig:
     BATCH_SIZE = 32
     BLOCK_SIZE = 64
     EVAL_INTERVAL = 500
-    EPOCHS = 5000
+    EPOCHS = 2
     LR = 2e-3
-    DEVICE = "cpu"
+    DEVICE = "cuda"
     EVAL_ITERS = 200
     MANUAL_SEED = 22
-    DATA = 'datasets/20231101_gu.txt'
+    DATA = 'datasets/qa_conversations_processed.txt'
     N_EMBD = 256
     NUM_BLOCKS = 6
     DROPOUT = 0.1 

@@ -4,7 +4,7 @@ import os
 from v4.model import AGPT, Config
 from time import time
 from v4.tokenizer import train_tokenizer
-from helpers import split_on_token, get_batch, split_encode_dataset, create_torch_dataset
+from helpers import split_on_token, split_encode_dataset, create_torch_dataset
 
 if Config.WANDB_LOG:
     import wandb
@@ -73,51 +73,57 @@ optimizer = torch.optim.AdamW(params=model.parameters(), lr=Config.LR)
 num_params = sum(p.numel() for p in model.parameters())
 
 # Training Loop
-start = time()
-loops = 0
-for iter in range(Config.EPOCHS):
-    for i, (x_train, y_train) in enumerate(train_loader):
-        loops += 1
-        train_batch, test_batch = get_batch(train_data, Config.BLOCK_SIZE, Config.BATCH_SIZE)
-        train_batch = train_batch.to(Config.DEVICE)
-        test_batch = test_batch.to(Config.DEVICE)
-        logits, loss = model(train_batch, test_batch)
-        if Config.WANDB_LOG:
-            wandb.log({
-                'batch': loops,
-                'loss': loss.item()
-            })
-        train_loss_list.append(loss.item())
-        optimizer.zero_grad(set_to_none=True)
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
-        optimizer.step()
+try:
+    start = time()
+    loops = 0
+    for iter in range(Config.EPOCHS):
+        for i, (x_train, y_train) in enumerate(train_loader):
+            loops += 1
+            x_train = x_train.to(Config.DEVICE)
+            y_train = y_train.to(Config.DEVICE)
+            logits, loss = model(x_train, y_train)
+            if Config.WANDB_LOG:
+                wandb.log({
+                    'batch': loops,
+                    'loss': loss.item()
+                })
+            train_loss_list.append(loss.item())
+            optimizer.zero_grad(set_to_none=True)
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
+            optimizer.step()
 
-        if i % Config.EVAL_INTERVAL == 0:
-            losses = estimate_loss()
-            test_loss_list.append(losses['val'])
-            print(f"Epoch {iter+1} | Batch {i} Train Loss {train_loss_list[-1]} | Test Loss {losses['val']}")
+            if i % Config.EVAL_INTERVAL == 0:
+                losses = estimate_loss()
+                test_loss_list.append(losses['val'])
+                print(f"Epoch {iter+1} | Batch {i} Train Loss {train_loss_list[-1]} | Test Loss {losses['val']}")
+except KeyboardInterrupt:
+    response = input("Training interrupted. Do you want to save the current model? (y/n): ")
+    if response.lower() == 'y':
+        TIME_TAKEN = time() - start
+    else:
+        raise
+finally:
+    TIME_TAKEN = time() - start
+    # Save the model
+    if not os.path.exists(os.path.dirname(Config.MODEL_PATH)):
+        # If not, create the folder
+        os.makedirs(os.path.dirname(Config.MODEL_PATH))
+    config_dict = {hyper: value for hyper, value in Config.__dict__.items() if not hyper.startswith("__")}
+    torch.save(model.state_dict(), Config.MODEL_PATH)
 
-TIME_TAKEN = time() - start
-# Save the model
-if not os.path.exists(os.path.dirname(Config.MODEL_PATH)):
-    # If not, create the folder
-    os.makedirs(os.path.dirname(Config.MODEL_PATH))
-config_dict = {hyper: value for hyper, value in Config.__dict__.items() if not hyper.startswith("__")}
-torch.save(model.state_dict(), Config.MODEL_PATH)
+    # Save additional details
+    metadata = config_dict | {
+        'time_taken': TIME_TAKEN,
+        'num_params': num_params,
+        'train_loss_list': train_loss_list,
+        'test_loss_list': test_loss_list
+    }
 
-# Save additional details
-metadata = config_dict | {
-    'time_taken': TIME_TAKEN,
-    'num_params': num_params,
-    'train_loss_list': train_loss_list,
-    'test_loss_list': test_loss_list
-}
+    with open(f"{Config.MODEL_PATH}_details.json", 'w') as f:
+        json.dump(metadata, f, indent=2)
 
-with open(f"{Config.MODEL_PATH}_details.json", 'w') as f:
-    json.dump(metadata, f, indent=2)
-
-print(f"Model successfully trained!")
-print(f"Parameters: {metadata['num_params']}")
-print(f"Final Train Loss: {metadata['train_loss_list'][-1]}")
-print(f"Final Test Loss: {metadata['test_loss_list'][-1]}")
+    print(f"Model successfully trained!")
+    print(f"Parameters: {metadata['num_params']}")
+    print(f"Final Train Loss: {metadata['train_loss_list'][-1]}")
+    print(f"Final Test Loss: {metadata['test_loss_list'][-1]}")

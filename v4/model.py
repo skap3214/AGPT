@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from v4.config import SmallConfig as Config
+from v4.config import MediumConfig as Config
 from modules import RopeWithRMSNormBlock
 torch.manual_seed(Config.MANUAL_SEED)
 if torch.cuda.is_available():
@@ -21,7 +21,7 @@ class AGPT(nn.Module):
         self.device = config.DEVICE
         self.n_embd = config.N_EMBD
         self.token_embedding_table = nn.Embedding(num_embeddings=vocab_size, embedding_dim=config.N_EMBD)
-        self.transformer_blocks = [RopeWithRMSNormBlock(config.N_EMBD, config.N_EMBD // config.HEADS, config.BLOCK_SIZE, config.DROPOUT) for _ in range(config.NUM_BLOCKS)]
+        self.transformer_blocks = [RopeWithRMSNormBlock(config.N_EMBD, config.N_EMBD // config.HEADS, config.BLOCK_SIZE, config.DROPOUT).to(config.DEVICE) for _ in range(config.NUM_BLOCKS)]
         self.lm_head = nn.Linear(config.N_EMBD, vocab_size, bias=False)
         print(sum(p.numel() for p in self.parameters()), 'parameters')
 
@@ -35,6 +35,7 @@ class AGPT(nn.Module):
         B, T = idx.shape
         pad_token_id = 0
         pad_mask = (idx != pad_token_id)  # Creates a mask of shape (B, T)
+        # pad_mask = pad_mask.to(self.device)
         assert T <= Config.BLOCK_SIZE, f"{T} is greater than {Config.BLOCK_SIZE}"
         token_embd = self.token_embedding_table(idx)#Size: (B, T, N_EMBD)
         attended_x = token_embd

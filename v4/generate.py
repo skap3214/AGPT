@@ -92,7 +92,7 @@ while True:
         # Iterate over each generated token and update the response
         for token in response_generator:
             # Decode the generated token and append it to the response
-            response += tokenizer.decode([token],skip_special_tokens = False) + " "
+            response += tokenizer.decode([token],skip_special_tokens = True)
             console.print(response, end="")  # Print the response so far
     except Exception as e:
         console.print(f"An error occurred: {e}", style="bold red")
