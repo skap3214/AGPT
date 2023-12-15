@@ -41,7 +41,7 @@ def train_tokenizer(data, path, max_length, eos_token="<|endoftext|>", special_t
 
     return tokenizer
 
-def get_tokenizer(path):
+def get_tokenizer(path) -> Tokenizer:
     # Extract the directory from the provided model path
     model_dir = os.path.dirname(path)
     # Construct the tokenizer file path

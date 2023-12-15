@@ -1,5 +1,6 @@
 import torch
-
+from torch.utils.data import Dataset, DataLoader
+import tokenizers
 
 def split_on_token(text, token="<|endoftext|>"):
     """
@@ -37,8 +38,48 @@ def get_batch(data, block_size: int, batch_size: int):
     y = torch.stack([data[i + 1:i + block_size + 1] for i in ix])
     return x, y
 
-def generate_response(query, model, tokenizer, block_size, device):
+def create_torch_dataset(data, block_size: int, batch_size: int, shuffle=True) -> DataLoader:
+    class TorchDataset(Dataset):
+        def __init__(self, data, block_size):
+            self.data = data
+            self.block_size = block_size
+
+        def __len__(self):
+            # Total number of chunks available in the dataset
+            return len(self.data) - self.block_size
+
+        def __getitem__(self, idx):
+            x = self.data[idx:idx + self.block_size]
+            y = self.data[idx + 1:idx + self.block_size + 1]
+            return x, y
+    dataset = TorchDataset(data, block_size)
+    dataloader = DataLoader(dataset, batch_size, shuffle)
+
+    return dataloader
+
+def generate_response(query, model, tokenizer: tokenizers.Tokenizer, block_size, device):
     ten_query = torch.tensor([tokenizer.encode(query).ids], dtype=torch.long, device=device)
     enc_query = ten_query.to(device)
     generated_tokens = model.generate(enc_query, block_size)[0]
     return tokenizer.decode(generated_tokens.tolist())
+
+def generate_batched_response(query, model, tokenizer: tokenizers.Tokenizer, block_size, device):
+    ten_query = torch.tensor([tokenizer.encode(query).ids], dtype=torch.long, device=device)
+    enc_query = ten_query.to(device)
+    generated_tokens = model.generate(enc_query, block_size)[0]
+    return tokenizer.decode_batch(generated_tokens.tolist())
+
+def generate_response_v2(query, model, tokenizer: tokenizers.Tokenizer, block_size, device, streaming=True):
+    ten_query = torch.tensor([tokenizer.encode(query).ids], dtype=torch.long, device=device)
+    enc_query = ten_query.to(device)
+    
+    if streaming:
+        # Generate tokens in a streaming manner
+        generated_tokens = []
+        for token in model.generate(enc_query, block_size, streaming=True):
+            yield token[0].cpu().tolist()[0]
+    else:
+        # Generate all tokens at once (non-streaming)
+        generated_tokens = model.generate(enc_query, block_size)[0].cpu().tolist()
+    
+    return tokenizer.decode(generated_tokens)

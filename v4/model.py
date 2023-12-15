@@ -1,17 +1,13 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import math
-from v4.config import Config as Config
-from modules import RopeBlock
+from v4.config import SmallConfig as Config
+from modules import RopeWithRMSNormBlock
 torch.manual_seed(Config.MANUAL_SEED)
 if torch.cuda.is_available():
     Config.DEVICE = "cuda"
 else:
     Config.DEVICE = "cpu"
-
-
-RopeBlock = RopeBlock(Config.N_EMBD, Config.N_EMBD//Config.HEADS, Config.BLOCK_SIZE, Config.DROPOUT)
 
 class AGPT(nn.Module):
 
@@ -25,8 +21,8 @@ class AGPT(nn.Module):
         self.device = config.DEVICE
         self.n_embd = config.N_EMBD
         self.token_embedding_table = nn.Embedding(num_embeddings=vocab_size, embedding_dim=config.N_EMBD)
-        self.transformer_blocks = nn.Sequential(*[RopeBlock for _ in range(config.NUM_BLOCKS)])
-        self.lm_head = nn.Linear(config.N_EMBD, vocab_size, bias=True)
+        self.transformer_blocks = [RopeWithRMSNormBlock(config.N_EMBD, config.N_EMBD // config.HEADS, config.BLOCK_SIZE, config.DROPOUT) for _ in range(config.NUM_BLOCKS)]
+        self.lm_head = nn.Linear(config.N_EMBD, vocab_size, bias=False)
         print(sum(p.numel() for p in self.parameters()), 'parameters')
 
     def init_weights(self) -> None:
@@ -37,11 +33,14 @@ class AGPT(nn.Module):
     
     def forward(self, idx: torch.Tensor, targets=None):
         B, T = idx.shape
+        pad_token_id = 0
+        pad_mask = (idx != pad_token_id)  # Creates a mask of shape (B, T)
         assert T <= Config.BLOCK_SIZE, f"{T} is greater than {Config.BLOCK_SIZE}"
         token_embd = self.token_embedding_table(idx)#Size: (B, T, N_EMBD)
-        attended_x = self.transformer_blocks(token_embd) #Size: (B, T, N_EMBD)
+        attended_x = token_embd
+        for block in self.transformer_blocks:
+            attended_x = block(attended_x, pad_mask)
         logits = self.lm_head(attended_x) #Size: (B, T, C)
-
         if targets == None:
             loss = None
         else:
@@ -51,12 +50,16 @@ class AGPT(nn.Module):
             loss = F.cross_entropy(logits, targets)
         return logits, loss
 
-    def generate(self, idx, max_new_tokens):
+    def generate(self, idx, max_new_tokens, streaming=False):
         for _ in range(max_new_tokens):
             idx_cond = idx[:, -(Config.BLOCK_SIZE):]
             logits, loss = self(idx_cond)
             logits = logits[:, -1, :]
             probs = F.softmax(logits, dim=-1)
-            idx_next = torch.multinomial(probs,num_samples=1)
+            idx_next = torch.multinomial(probs, num_samples=1)
             idx = torch.cat((idx, idx_next), dim=1)
-        return idx
+
+            if streaming:
+                yield idx_next
+        if not streaming:
+            return idx

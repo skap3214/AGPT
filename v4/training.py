@@ -4,7 +4,7 @@ import os
 from v4.model import AGPT, Config
 from time import time
 from v4.tokenizer import train_tokenizer
-from helpers import split_on_token, get_batch, split_encode_dataset
+from helpers import split_on_token, get_batch, split_encode_dataset, create_torch_dataset
 
 if Config.WANDB_LOG:
     import wandb
@@ -17,10 +17,12 @@ print("VOCAB_SIZE", VOCAB_SIZE)
 with open(Config.DATA, 'r', encoding='utf-8') as f:
     text = f.read()
 
-batched_dataset = split_on_token(text, "<|endoftext|>")
+splitted_dataset = split_on_token(text, "<|endoftext|>")
 
-train_data, val_data = split_encode_dataset(batched_dataset, tokenizer, 0.9)
+train_data, val_data = split_encode_dataset(splitted_dataset, tokenizer, 0.9)
 
+train_loader = create_torch_dataset(train_data, Config.BLOCK_SIZE, Config.BATCH_SIZE)
+val_loader = create_torch_dataset(val_data, Config.BLOCK_SIZE, Config.BATCH_SIZE)
 
 config = {
     'batch_size': Config.BATCH_SIZE,
@@ -31,9 +33,12 @@ config = {
     'manual_seed': Config.MANUAL_SEED,
     'data': Config.DATA
 }
+
+_, version, size, name = Config.MODEL_PATH.split("/")
+name = name.replace(".pth", "")
 if Config.WANDB_LOG:
     run = wandb.init(
-        project='agpt_small',
+        project=f"{version}_{size}_{name}",
         job_type='train',
         config=config,
     )
@@ -48,16 +53,15 @@ test_loss_list = []
 def estimate_loss():
     final_loss = {}
     model.eval()
-    for split in ["val"]:
+    for split, loader in zip(["val"], [val_loader]):
         losses = torch.zeros(Config.EVAL_ITERS)
-        for k in range(Config.EVAL_ITERS):
-            X, Y = get_batch(val_data, Config.BLOCK_SIZE, Config.BATCH_SIZE)
-            X, Y = X.to(Config.DEVICE), Y.to(Config.DEVICE)
-            _, loss = model(X, Y)
+        for k, (x_val, y_val) in enumerate(loader):
+            if k >= Config.EVAL_ITERS:
+                break
+            x_val, y_val = x_val.to(Config.DEVICE), y_val.to(Config.DEVICE)
+            _, loss = model(x_val, y_val)
             if Config.WANDB_LOG:
-                wandb.log({
-                    'val_loss': loss.item(),
-                })
+                wandb.log({'val_loss': loss.item()})
             losses[k] = loss.item()
         final_loss[split] = losses.mean().item()
     model.train()
@@ -70,25 +74,29 @@ num_params = sum(p.numel() for p in model.parameters())
 
 # Training Loop
 start = time()
+loops = 0
 for iter in range(Config.EPOCHS):
-    train_batch, test_batch = get_batch(train_data, Config.BLOCK_SIZE, Config.BATCH_SIZE)
-    train_batch = train_batch.to(Config.DEVICE)
-    test_batch = test_batch.to(Config.DEVICE)
-    logits, loss = model(train_batch, test_batch)
-    if Config.WANDB_LOG:
-        wandb.log({
-            'loss': loss.item()
-        })
-    train_loss_list.append(loss.item())
-    optimizer.zero_grad(set_to_none=True)
-    loss.backward()
-    torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
-    optimizer.step()
+    for i, (x_train, y_train) in enumerate(train_loader):
+        loops += 1
+        train_batch, test_batch = get_batch(train_data, Config.BLOCK_SIZE, Config.BATCH_SIZE)
+        train_batch = train_batch.to(Config.DEVICE)
+        test_batch = test_batch.to(Config.DEVICE)
+        logits, loss = model(train_batch, test_batch)
+        if Config.WANDB_LOG:
+            wandb.log({
+                'batch': loops,
+                'loss': loss.item()
+            })
+        train_loss_list.append(loss.item())
+        optimizer.zero_grad(set_to_none=True)
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
+        optimizer.step()
 
-    if iter % Config.EVAL_INTERVAL == 0:
-        losses = estimate_loss()
-        test_loss_list.append(losses['val'])
-        print(f"Epoch {iter} | Train Loss {train_loss_list[-1]} | Test Loss {losses['val']}")
+        if i % Config.EVAL_INTERVAL == 0:
+            losses = estimate_loss()
+            test_loss_list.append(losses['val'])
+            print(f"Epoch {iter+1} | Batch {i} Train Loss {train_loss_list[-1]} | Test Loss {losses['val']}")
 
 TIME_TAKEN = time() - start
 # Save the model

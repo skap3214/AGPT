@@ -4,7 +4,7 @@ import datetime
 import torch
 import os
 from v4.model import AGPT, Config
-from helpers import generate_response
+from helpers import generate_response_v2
 from v4.tokenizer import get_tokenizer
 from rich.console import Console
 from rich.table import Table
@@ -21,6 +21,8 @@ tokenizer = get_tokenizer(Config.MODEL_PATH)
 model = AGPT(tokenizer.get_vocab_size()).to(Config.DEVICE)
 model.load_state_dict(torch.load(Config.MODEL_PATH, map_location=torch.device(Config.DEVICE)))
 model.to(Config.DEVICE)
+print("Compiling model...")
+model = torch.compile(model)
 model.eval()
 
 
@@ -64,33 +66,38 @@ def main():
     clear_screen()
     print_header()
 
-    while True:
-        query = console.input("[bold yellow]Your Question (Type 'exit' or 'help' for commands): ")
+while True:
+    query = console.input("[bold yellow]Your Question (Type 'exit' or 'help' for commands): ")
 
-        if query.lower() == 'exit':
-            break
-        elif query.lower() == 'help':
-            print_help()
-            continue
+    if query.lower() == 'exit':
+        break
+    elif query.lower() == 'help':
+        print_help()
+        continue
 
-        try:
-            with console.status("[bold yellow]Processing your request...", spinner="dots"):
-                # Simulate response generation
-                response = generate_response(
-                query=query,
-                model=model,
-                tokenizer=tokenizer,
-                block_size=Config.BLOCK_SIZE,
-                device=Config.DEVICE
-                )
-                
-                timestamp = format_timestamp()
-                console.print(f"--- Model Response at {timestamp} ---", style="bold green")
-                print_response_box(response)
-        except Exception as e:
-            console.print(f"An error occurred: {e}", style="bold red")
+    try:
+        response = ""
+        timestamp = format_timestamp()
+        console.print(f"--- Model Response at {timestamp} ---", style="bold green")
 
-    print_footer()
+        # Initialize the response generation process
+        response_generator = generate_response_v2(
+            query=query,
+            model=model,
+            tokenizer=tokenizer,
+            block_size=Config.BLOCK_SIZE,
+            device=Config.DEVICE,
+            streaming=True
+        )
+        # Iterate over each generated token and update the response
+        for token in response_generator:
+            # Decode the generated token and append it to the response
+            response += tokenizer.decode([token],skip_special_tokens = False) + " "
+            console.print(response, end="")  # Print the response so far
+    except Exception as e:
+        console.print(f"An error occurred: {e}", style="bold red")
+
+print_footer()
 
 if __name__ == "__main__":
     main()

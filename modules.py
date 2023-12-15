@@ -362,7 +362,6 @@ class FeedForwardWithSwiGLU(nn.Module):
         dropout = 0
     ) -> None:
         super().__init__()
-
         self.seq = nn.Sequential(
             nn.Linear(n_embd, hidden_dim),
             SwiGLU(hidden_dim),
@@ -496,7 +495,7 @@ class RopeAttention(nn.Module):
             self.register_buffer("bias", torch.tril(torch.ones(block_size, block_size))
                                         .view(1, 1, block_size, block_size))
 
-    def forward(self, x):
+    def forward(self, x, pad_mask=None):
         B, T, C = x.size()
 
         q, k, v  = self.c_attn(x).split(self.n_embd, dim=2)
@@ -507,11 +506,22 @@ class RopeAttention(nn.Module):
         q = self.rope.rotate_queries_or_keys(q)
         k = self.rope.rotate_queries_or_keys(k)
 
+        causal_mask = torch.tril(torch.ones(T, T, device=x.device)).view(1, 1, T, T)
+
+        # Combine with pad_mask if it's provided
+        if pad_mask is not None:
+            pad_mask = pad_mask.unsqueeze(1).unsqueeze(1)  # Reshape to (B, 1, 1, T)
+            combined_mask = causal_mask * pad_mask
+        else:
+            combined_mask = causal_mask
         if self.flash:
-            y = torch.nn.functional.scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=self.dropout if self.training else 0, is_causal=True)
+            y = torch.nn.functional.scaled_dot_product_attention(q, k, v, attn_mask=combined_mask, dropout_p=self.dropout if self.training else 0, is_causal=False)
         else:
             att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
-            att = att.masked_fill(self.bias[:,:,:T,:T] == 0, float('-inf'))
+            if combined_mask is not None:
+                att = att.masked_fill(combined_mask == 0, float('-inf'))
+            else:
+                att = att.masked_fill(causal_mask == 0, float('-inf'))
             att = nn.functional.softmax(att, dim=-1)
             att = self.attn_dropout(att)
             y = att @ v
@@ -520,8 +530,21 @@ class RopeAttention(nn.Module):
         y = self.resid_dropout(self.c_proj(y))
         return y
 
-
 class RopeBlock(nn.Module):
+    def __init__(self, n_embd, num_head, block_size, dropout):
+        assert n_embd % num_head == 0, f"not divisible: mod is {n_embd % num_head}"
+        super().__init__()
+        self.mh_head = RopeAttention(n_embd, dropout, block_size, num_head)
+        self.ffwd = FeedForward(n_embd)
+        self.layer_norm1 = nn.LayerNorm(n_embd)
+        self.layer_norm2 = nn.LayerNorm(n_embd)
+    
+    def forward(self, x: torch.Tensor, pad_mask=None):
+        out = x + self.mh_head(self.layer_norm1(x), pad_mask=pad_mask)  # Residual connections
+        out = out + self.ffwd(self.layer_norm2(out))
+        return out
+
+class RopeWithRMSNormBlock(nn.Module):
     def __init__(
             self, 
             n_embd,
@@ -533,10 +556,9 @@ class RopeBlock(nn.Module):
         super().__init__()
         self.mh_head = RopeAttention(n_embd, dropout, block_size, num_head)
         self.ffwd = FeedForward(n_embd)
-        self.layer_norm1 = nn.LayerNorm(n_embd)
-        self.layer_norm2 = nn.LayerNorm(n_embd)
+        self.rms_norm = RMSNorm(n_embd)
     
-    def forward(self, x:torch.Tensor):
-        out = x + self.mh_head(self.layer_norm1(x)) #Residual connections
-        out = out + self.ffwd(self.layer_norm2(out))
+    def forward(self, x:torch.Tensor, pad_mask=None):
+        out = x + self.mh_head(self.rms_norm(x), pad_mask=pad_mask) #Residual connections
+        out = out + self.ffwd(self.rms_norm(out))
         return out

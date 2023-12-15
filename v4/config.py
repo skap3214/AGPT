@@ -23,7 +23,7 @@ class Config:
     BATCH_SIZE = 64
     BLOCK_SIZE = 1024
     EVAL_INTERVAL = 500
-    EPOCHS = 10000
+    EPOCHS = 2
     LR = 2e-3
     DEVICE = "cuda"
     EVAL_ITERS = 200
@@ -35,18 +35,18 @@ class Config:
     HEADS = 16
 
 class MediumConfig:
-    WANDB_LOG = False
+    WANDB_LOG = True
     MODEL_PATH = 'models/v4/medium/AGPT_md.pth'
-    BATCH_SIZE = 64
-    BLOCK_SIZE = 128
+    BATCH_SIZE = 32
+    BLOCK_SIZE = 64
     EVAL_INTERVAL = 500
     EPOCHS = 5000
     LR = 2e-3
     DEVICE = "cpu"
     EVAL_ITERS = 200
     MANUAL_SEED = 22
-    DATA = 'datasets/tiny_stories.txt'
-    N_EMBD = 512
+    DATA = 'datasets/20231101_gu.txt'
+    N_EMBD = 256
     NUM_BLOCKS = 6
     DROPOUT = 0.1 
     HEADS = 8 
@@ -57,12 +57,12 @@ class SmallConfig:
     BATCH_SIZE = 32
     BLOCK_SIZE = 8
     EVAL_INTERVAL = 500
-    EPOCHS = 4000
+    EPOCHS = 1
     LR = 1e-3
     DEVICE = "cpu"
     EVAL_ITERS = 200
     MANUAL_SEED = 22
-    DATA = 'datasets/medicare_train_proccessed_small.txt'
+    DATA = 'datasets/medicare_train_proccessed.txt'
     N_EMBD = 32
     NUM_BLOCKS = 4
     DROPOUT = 0.1
