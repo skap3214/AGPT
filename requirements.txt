@@ -7,3 +7,4 @@ matplotlib
 tokenizers
 wandb
 rotary-embedding-torch
+pytorch_lightning

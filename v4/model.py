@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from v4.config import MediumConfig as Config
+from v4.config import SmallConfig as Config
 from modules import RopeWithRMSNormBlock
 torch.manual_seed(Config.MANUAL_SEED)
 if torch.cuda.is_available():
@@ -22,7 +22,7 @@ class AGPT(nn.Module):
         self.n_embd = config.N_EMBD
         self.token_embedding_table = nn.Embedding(num_embeddings=vocab_size, embedding_dim=config.N_EMBD)
         self.transformer_blocks = [RopeWithRMSNormBlock(config.N_EMBD, config.N_EMBD // config.HEADS, config.BLOCK_SIZE, config.DROPOUT).to(config.DEVICE) for _ in range(config.NUM_BLOCKS)]
-        self.lm_head = nn.Linear(config.N_EMBD, vocab_size, bias=False)
+        self.lm_head = nn.Linear(config.N_EMBD, vocab_size, bias=True)
         print(sum(p.numel() for p in self.parameters()), 'parameters')
 
     def init_weights(self) -> None:
